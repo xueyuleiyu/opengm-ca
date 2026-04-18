@@ -11,7 +11,6 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	_ "gitee.com/opengauss/openGauss-connector-go-pq"
-	"github.com/uptrace/bun/extra/bundebug"
 )
 
 // DB 全局数据库实例
@@ -41,10 +40,6 @@ func NewDB(cfg *config.DatabaseConfig) (*DB, error) {
 
 	db := bun.NewDB(sqldb, pgdialect.New())
 
-	// 调试模式(开发环境)
-	if config.Get().Log.Level == "debug" {
-		db.AddQueryHook(bundebug.NewQueryHook(bundebug.WithVerbose(true)))
-	}
 
 	log.Info().Str("host", cfg.Host).Int("port", cfg.Port).Str("dbname", cfg.DBName).
 		Msg("数据库连接成功")

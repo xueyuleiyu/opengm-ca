@@ -20,7 +20,7 @@ database:
   host: "localhost"
   port: 5432
   user: "ca_admin"
-  password: "${DB_PASSWORD}"  # 从环境变量读取
+  password: "ca_admin_pass123"  # 从环境变量读取
   dbname: "opengm_ca"
   ssl_mode: "disable"
   pool:
@@ -129,7 +129,7 @@ audit:
 # 认证与授权
 auth:
   jwt:
-    secret: "${JWT_SECRET}"
+    secret: "opengm-ca-jwt-secret-change-in-production"
     issuer: "openGM-CA"
     access_token_ttl: "1h"
     refresh_token_ttl: "168h"  # 7天

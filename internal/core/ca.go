@@ -8,6 +8,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+
+	smx509 "github.com/emmansun/gmsm/smx509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
@@ -29,8 +31,10 @@ type CAEngine struct {
 
 // CAInstance CA实例(根CA或中间CA)
 type CAInstance struct {
+	CAID       int
+	CertPEM    string
 	Config     *model.CAChain
-	Cert       interface{} // *x509.Certificate 或 *sm2x509.Certificate
+	Cert       *smx509.Certificate
 	Signer     crypto.Signer
 	PrivateKey interface{} // 解密后的私钥
 }
@@ -109,12 +113,12 @@ func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig
 	}
 
 	// 自签名
-	certBytes, err := x509.CreateCertificate(rand.Reader, template, template, pubKey, privKey)
+	certBytes, err := smx509.CreateCertificate(rand.Reader, template, template, pubKey, privKey)
 	if err != nil {
 		return nil, fmt.Errorf("自签名根CA证书失败: %w", err)
 	}
 
-	cert, err := x509.ParseCertificate(certBytes)
+	cert, err := smx509.ParseCertificate(certBytes)
 	if err != nil {
 		return nil, fmt.Errorf("解析根CA证书失败: %w", err)
 	}
@@ -122,6 +126,8 @@ func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig
 	certPEM := pemEncode(certBytes, "CERTIFICATE")
 
 	instance := &CAInstance{
+		CAID:       int(generateSerialNumber().Int64()),
+		CertPEM:    certPEM,
 		Cert:       cert,
 		Signer:     privKey.(crypto.Signer),
 		PrivateKey: privKey,
@@ -156,22 +162,25 @@ func (e *CAEngine) createIntermediateCA(ctx context.Context, parent *CAInstance,
 		IsCA:                  true,
 		MaxPathLen:            req.MaxPathLen,
 		SubjectKeyId:          generateKeyID(pubKey),
-		AuthorityKeyId:        parent.Cert.(*x509.Certificate).SubjectKeyId,
+		AuthorityKeyId:        parent.Cert.SubjectKeyId,
 	}
 
 	// 使用父CA签名
-	parentCert := parent.Cert.(*x509.Certificate)
-	certBytes, err := x509.CreateCertificate(rand.Reader, template, parentCert, pubKey, parent.Signer)
+	parentCert := parent.Cert
+	certBytes, err := smx509.CreateCertificate(rand.Reader, template, parentCert, pubKey, parent.Signer)
 	if err != nil {
 		return nil, fmt.Errorf("签名中间CA证书失败: %w", err)
 	}
 
-	cert, err := x509.ParseCertificate(certBytes)
+	cert, err := smx509.ParseCertificate(certBytes)
 	if err != nil {
 		return nil, fmt.Errorf("解析中间CA证书失败: %w", err)
 	}
 
+	certPEM := pemEncode(certBytes, "CERTIFICATE")
 	instance := &CAInstance{
+		CAID:       int(generateSerialNumber().Int64()),
+		CertPEM:    certPEM,
 		Cert:       cert,
 		Signer:     privKey.(crypto.Signer),
 		PrivateKey: privKey,
@@ -197,13 +206,13 @@ func (e *CAEngine) IssueCertificate(ctx context.Context, caName string, req *mod
 	}
 
 	// 使用CA签名
-	parentCert := ca.Cert.(*x509.Certificate)
-	certBytes, err := x509.CreateCertificate(rand.Reader, template, parentCert, pubKey, ca.Signer)
+	parentCert := ca.Cert
+	certBytes, err := smx509.CreateCertificate(rand.Reader, template, parentCert, pubKey, ca.Signer)
 	if err != nil {
 		return nil, fmt.Errorf("签名证书失败: %w", err)
 	}
 
-	cert, err := x509.ParseCertificate(certBytes)
+	cert, err := smx509.ParseCertificate(certBytes)
 	if err != nil {
 		return nil, fmt.Errorf("解析证书失败: %w", err)
 	}

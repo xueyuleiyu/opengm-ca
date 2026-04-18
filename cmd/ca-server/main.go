@@ -126,6 +126,15 @@ func startServer(cfg *config.Config, db *repository.DB) error {
 	// 创建路由
 	router := api.NewRouter(cfg, mgmtSvc, enrollSvc, exportSvc, auditSvc, authHandler)
 	engine := gin.New()
+	// 前端页面服务
+	engine.GET("/", func(c *gin.Context) {
+		c.File("./web/index.html")
+	})
+	engine.GET("/login", func(c *gin.Context) {
+		c.File("./web/index.html")
+	})
+	// API 静态资源（如证书下载等）
+	engine.Static("/web", "./web")
 	router.Register(engine)
 
 	server := &http.Server{

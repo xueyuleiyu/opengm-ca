@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/opengm-ca/opengm-ca/internal/config"
-	"github.com/opengm-ca/opengm-ca/internal/crypto"
+	opengmcrypto "github.com/opengm-ca/opengm-ca/internal/crypto"
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/opengm-ca/opengm-ca/internal/repository"
 )
@@ -14,13 +14,13 @@ import (
 // KeyExportService 私钥导出服务
 type KeyExportService struct {
 	cfg       *config.Config
-	keyStore  *crypto.KeyStore
+	keyStore  *opengmcrypto.KeyStore
 	keyRepo   *repository.KeyRepository
 	auditSvc  *AuditService
 }
 
 // NewKeyExportService 创建私钥导出服务
-func NewKeyExportService(cfg *config.Config, keyStore *crypto.KeyStore, keyRepo *repository.KeyRepository, auditSvc *AuditService) *KeyExportService {
+func NewKeyExportService(cfg *config.Config, keyStore *opengmcrypto.KeyStore, keyRepo *repository.KeyRepository, auditSvc *AuditService) *KeyExportService {
 	return &KeyExportService{
 		cfg:      cfg,
 		keyStore: keyStore,

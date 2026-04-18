@@ -128,38 +128,38 @@ type SubjectAltName struct {
 
 // CertificateRequest 证书申请请求
 type CertificateRequest struct {
-	CertType      string            `json:"cert_type" validate:"required,oneof=SSL AUTH VPN"
-	Algorithm     string            `json:"algorithm" validate:"required,oneof=SM2 RSA2048 RSA4096 EC256 EC384"
-	Subject       SubjectInfo       `json:"subject" validate:"required"
-	ValidityDays  int               `json:"validity_days" validate:"required,min=1,max=3650"
-	Extensions    CertExtensions    `json:"extensions,omitempty"
-	GenKeyLocally bool              `json:"gen_key_locally"
-	Exportable    bool              `json:"exportable"
-	DualCertMode  bool              `json:"dual_cert_mode,omitempty"
+	CertType      string            `json:"cert_type" validate:"required,oneof=SSL AUTH VPN"`
+	Algorithm     string            `json:"algorithm" validate:"required,oneof=SM2 RSA2048 RSA4096 EC256 EC384"`
+	Subject       SubjectInfo       `json:"subject" validate:"required"`
+	ValidityDays  int               `json:"validity_days" validate:"required,min=1,max=3650"`
+	Extensions    CertExtensions    `json:"extensions,omitempty"`
+	GenKeyLocally bool              `json:"gen_key_locally"`
+	Exportable    bool              `json:"exportable"`
+	DualCertMode  bool              `json:"dual_cert_mode,omitempty"`
 	CSRPEM        string            `json:"csr_pem,omitempty"` // 如客户提供CSR
 }
 
 // SubjectInfo 证书主题信息
 type SubjectInfo struct {
-	CommonName         string `json:"common_name" validate:"required,max=128"
-	Organization       string `json:"organization,omitempty" validate:"max=128"
-	OrganizationalUnit string `json:"organizational_unit,omitempty" validate:"max=128"
-	Country            string `json:"country,omitempty" validate:"len=2"
-	State              string `json:"state,omitempty" validate:"max=128"
-	Locality           string `json:"locality,omitempty" validate:"max=128"
-	Email              string `json:"email,omitempty" validate:"omitempty,email,max=128"
-	IDCardNumber       string `json:"id_card_number,omitempty" validate:"omitempty,len=18"
-	EmployeeID         string `json:"employee_id,omitempty" validate:"omitempty,max=32"
-	DeviceID           string `json:"device_id,omitempty" validate:"omitempty,max=64"
-	Department         string `json:"department,omitempty" validate:"omitempty,max=128"
-	VPNDomain          string `json:"vpn_domain,omitempty" validate:"omitempty,max=64"
+	CommonName         string `json:"common_name" validate:"required,max=128"`
+	Organization       string `json:"organization,omitempty" validate:"max=128"`
+	OrganizationalUnit string `json:"organizational_unit,omitempty" validate:"max=128"`
+	Country            string `json:"country,omitempty" validate:"len=2"`
+	State              string `json:"state,omitempty" validate:"max=128"`
+	Locality           string `json:"locality,omitempty" validate:"max=128"`
+	Email              string `json:"email,omitempty" validate:"omitempty,email,max=128"`
+	IDCardNumber       string `json:"id_card_number,omitempty" validate:"omitempty,len=18"`
+	EmployeeID         string `json:"employee_id,omitempty" validate:"omitempty,max=32"`
+	DeviceID           string `json:"device_id,omitempty" validate:"omitempty,max=64"`
+	Department         string `json:"department,omitempty" validate:"omitempty,max=128"`
+	VPNDomain          string `json:"vpn_domain,omitempty" validate:"omitempty,max=64"`
 }
 
 // CertExtensions 证书扩展
 type CertExtensions struct {
-	SubjectAltNames []SubjectAltName `json:"subject_alt_names,omitempty"
-	KeyUsage        []string         `json:"key_usage,omitempty" validate:"dive,oneof=digitalSignature nonRepudiation keyEncipherment dataEncipherment keyAgreement certSign crlSign encipherOnly decipherOnly"
-	ExtKeyUsage     []string         `json:"ext_key_usage,omitempty" validate:"dive,oneof=serverAuth clientAuth codeSigning emailProtection timeStamping ocspSigning ipsecEndSystem ipsecTunnel ipsecUser anyExtendedKeyUsage"
+	SubjectAltNames []SubjectAltName `json:"subject_alt_names,omitempty"`
+	KeyUsage        []string         `json:"key_usage,omitempty" validate:"dive,oneof=digitalSignature nonRepudiation keyEncipherment dataEncipherment keyAgreement certSign crlSign encipherOnly decipherOnly"`
+	ExtKeyUsage     []string         `json:"ext_key_usage,omitempty" validate:"dive,oneof=serverAuth clientAuth codeSigning emailProtection timeStamping ocspSigning ipsecEndSystem ipsecTunnel ipsecUser anyExtendedKeyUsage"`
 }
 
 // CertificateResponse 证书申请响应

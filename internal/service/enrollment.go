@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
@@ -14,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/opengm-ca/opengm-ca/internal/config"
 	"github.com/opengm-ca/opengm-ca/internal/core"
-	"github.com/opengm-ca/opengm-ca/internal/crypto"
+	opengmcrypto "github.com/opengm-ca/opengm-ca/internal/crypto"
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/opengm-ca/opengm-ca/internal/repository"
 	"github.com/rs/zerolog/log"
@@ -24,8 +23,8 @@ import (
 type EnrollmentService struct {
 	cfg           *config.Config
 	caEngine      *core.CAEngine
-	keyGen        *crypto.KeyGenerator
-	keyStore      *crypto.KeyStore
+	keyGen        *opengmcrypto.KeyGenerator
+	keyStore      *opengmcrypto.KeyStore
 	certRepo      *repository.CertificateRepository
 	keyRepo       *repository.KeyRepository
 	subjectRepo   *repository.SubjectRepository
@@ -37,7 +36,7 @@ type EnrollmentService struct {
 func NewEnrollmentService(
 	cfg *config.Config,
 	caEngine *core.CAEngine,
-	keyStore *crypto.KeyStore,
+	keyStore *opengmcrypto.KeyStore,
 	certRepo *repository.CertificateRepository,
 	keyRepo *repository.KeyRepository,
 	subjectRepo *repository.SubjectRepository,
@@ -47,7 +46,7 @@ func NewEnrollmentService(
 	return &EnrollmentService{
 		cfg:         cfg,
 		caEngine:    caEngine,
-		keyGen:      crypto.NewKeyGenerator(),
+		keyGen:      opengmcrypto.NewKeyGenerator(),
 		keyStore:    keyStore,
 		certRepo:    certRepo,
 		keyRepo:     keyRepo,
@@ -128,7 +127,7 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 		CAID:          ca.ID,
 		SerialNumber:  fmt.Sprintf("%X", cert.SerialNumber),
 		SerialNumberDec: cert.SerialNumber.String(),
-		CertPEM:       crypto.PemEncode(certBytes, "CERTIFICATE"),
+		CertPEM:       opengmcrypto.PemEncode(certBytes, "CERTIFICATE"),
 		SubjectDN:     cert.Subject.String(),
 		IssuerDN:      cert.Issuer.String(),
 		SignatureAlg:  model.SignatureAlgorithm(cert.SignatureAlgorithm.String()),
@@ -222,7 +221,7 @@ func (s *EnrollmentService) selectCA(certType string) string {
 
 // createKeyRecord 创建密钥记录
 func (s *EnrollmentService) createKeyRecord(ctx context.Context, subjectID int, req *model.CertificateRequest, privKey, pubKey interface{}, createdBy string) (*model.CertKey, error) {
-	pubKeyPEM, err := crypto.EncodePublicKeyToPEM(pubKey)
+	pubKeyPEM, err := opengmcrypto.EncodePublicKeyToPEM(pubKey)
 	if err != nil {
 		return nil, fmt.Errorf("编码公钥失败: %w", err)
 	}
@@ -261,12 +260,12 @@ func (s *EnrollmentService) encodePrivateKey(privKey interface{}, algorithm stri
 	switch algorithm {
 	case "RSA2048", "RSA4096":
 		importRSA := privKey.(*rsa.PrivateKey)
-		return crypto.EncodePrivateKeyToPKCS1(importRSA)
+		return opengmcrypto.EncodePrivateKeyToPKCS1(importRSA)
 	case "EC256", "EC384":
 		importEC := privKey.(*ecdsa.PrivateKey)
-		return crypto.EncodeECPrivateKey(importEC)
+		return opengmcrypto.EncodeECPrivateKey(importEC)
 	default:
-		return crypto.EncodePrivateKeyToPKCS8(privKey)
+		return opengmcrypto.EncodePrivateKeyToPKCS8(privKey)
 	}
 }
 
@@ -288,7 +287,7 @@ func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, sub
 			Organization:       []string{subject.Organization},
 			OrganizationalUnit: []string{subject.OrganizationalUnit},
 			Country:            []string{subject.Country},
-			State:              []string{subject.State},
+			Province:           []string{subject.State},
 			Locality:           []string{subject.Locality},
 		},
 		NotBefore: time.Now().Add(-1 * time.Hour),
@@ -301,10 +300,10 @@ func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, sub
 		template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}
 	case "AUTH":
-		template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageNonRepudiation
+		template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageContentCommitment
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageEmailProtection}
 	case "VPN_SIGN":
-		template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageNonRepudiation
+		template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageContentCommitment
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageIPSECEndSystem}
 	case "VPN_ENC":
 		template.KeyUsage = x509.KeyUsageKeyEncipherment | x509.KeyUsageDataEncipherment

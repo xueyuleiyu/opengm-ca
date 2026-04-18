@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/uptrace/bun"

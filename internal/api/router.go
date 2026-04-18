@@ -92,11 +92,8 @@ func (r *Router) Register(engine *gin.Engine) {
 		}
 
 		// CRL/OCSP（公开访问）
-		v1.GET("/crl/:ca_name.crl", func(c *gin.Context) {
+		v1.GET("/crl/:ca_name", func(c *gin.Context) {
 			c.String(http.StatusOK, "CRL下载接口 - 待实现")
-		})
-		v1.GET("/crl/:ca_name.pem", func(c *gin.Context) {
-			c.String(http.StatusOK, "CRL PEM下载接口 - 待实现")
 		})
 		v1.POST("/ocsp", func(c *gin.Context) {
 			c.String(http.StatusOK, "OCSP接口 - 待实现")

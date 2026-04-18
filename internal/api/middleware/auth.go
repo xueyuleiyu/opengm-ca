@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -8,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/opengm-ca/opengm-ca/internal/config"
-	"github.com/rs/zerolog/log"
 )
 
 // JWTMiddleware JWT认证中间件

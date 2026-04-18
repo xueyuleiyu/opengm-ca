@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -40,7 +41,7 @@ func (g *KeyGenerator) GenerateKeyPair(algorithm string) (interface{}, interface
 }
 
 // generateSM2KeyPair 生成SM2密钥对
-func (g *KeyGenerator) generateSM2KeyPair() (*sm2.PrivateKey, *sm2.PublicKey, error) {
+func (g *KeyGenerator) generateSM2KeyPair() (*sm2.PrivateKey, crypto.PublicKey, error) {
 	privKey, err := sm2.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("生成SM2密钥失败: %w", err)
