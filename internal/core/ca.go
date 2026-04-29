@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/emmansun/gmsm/sm2"
-	sm2x509 "github.com/emmansun/gmsm/x509"
 	"github.com/opengm-ca/opengm-ca/internal/config"
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/rs/zerolog/log"
@@ -45,8 +44,9 @@ func NewCAEngine(cfg *config.CAConfig) *CAEngine {
 }
 
 // LoadFromDB 从数据库加载CA证书链
-func (e *CAEngine) LoadFromDB(ctx context.Context, db model.CAStore) error {
+func (e *CAEngine) LoadFromDB(ctx context.Context, caRepo interface{}) error {
 	// TODO: 从数据库查询ca_chain表，加载所有CA实例
+	_ = caRepo
 	return nil
 }
 

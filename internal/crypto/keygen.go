@@ -45,7 +45,7 @@ func (g *KeyGenerator) generateSM2KeyPair() (*sm2.PrivateKey, *sm2.PublicKey, er
 	if err != nil {
 		return nil, nil, fmt.Errorf("生成SM2密钥失败: %w", err)
 	}
-	return privKey, &priv2.PublicKey, nil
+	return privKey, &privKey.PublicKey, nil
 }
 
 // generateRSAKeyPair 生成RSA密钥对
@@ -115,6 +115,15 @@ func EncodePublicKeyToPEM(publicKey interface{}) (string, error) {
 		Bytes: pubBytes,
 	}
 	return string(pem.EncodeToMemory(block)), nil
+}
+
+// PemEncode PEM编码任意数据
+func PemEncode(data []byte, blockType string) string {
+	block := &pem.Block{
+		Type:  blockType,
+		Bytes: data,
+	}
+	return string(pem.EncodeToMemory(block))
 }
 
 // ParsePrivateKeyFromPEM 从PEM解析私钥
