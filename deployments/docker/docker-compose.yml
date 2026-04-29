@@ -1,0 +1,66 @@
+# openGM-CA Docker Compose 部署配置
+# 适用于开发测试环境
+
+version: "3.8"
+
+services:
+  opengauss:
+    image: enmotech/opengauss:3.1.0
+    container_name: opengauss-ca
+    hostname: opengauss
+    environment:
+      GS_PASSWORD: "OpenGauss@123"
+      GS_DB: "opengm_ca"
+    ports:
+      - "5432:5432"
+    volumes:
+      - opengauss_data:/var/lib/opengauss
+    networks:
+      - ca-network
+    healthcheck:
+      test: ["CMD", "gsql", "-d", "postgres", "-c", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  opengm-ca:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile
+    image: opengm-ca:latest
+    container_name: opengm-ca-server
+    hostname: opengm-ca
+    depends_on:
+      opengauss:
+        condition: service_healthy
+    environment:
+      DB_PASSWORD: "OpenGauss@123"
+      JWT_SECRET: "your-jwt-secret-change-in-production"
+      CA_MASTER_KEY: "your-32-byte-master-key-here!!!"
+    ports:
+      - "8443:8443"
+    volumes:
+      - ca_certs:/etc/opengm-ca/certs
+      - ca_keys:/etc/opengm-ca/keys
+      - ca_logs:/var/log/opengm-ca
+      - ./configs/config.yaml:/etc/opengm-ca/config.yaml:ro
+    networks:
+      - ca-network
+    restart: unless-stopped
+
+volumes:
+  opengauss_data:
+    driver: local
+  ca_certs:
+    driver: local
+  ca_keys:
+    driver: local
+  ca_logs:
+    driver: local
+
+networks:
+  ca-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

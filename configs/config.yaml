@@ -1,0 +1,148 @@
+# openGM-CA 配置文件
+
+server:
+  host: "0.0.0.0"
+  port: 8443
+  tls:
+    enabled: true
+    cert_file: "/etc/opengm-ca/certs/server.crt"
+    key_file: "/etc/opengm-ca/certs/server.key"
+    # 国密TLS双栈配置
+    gm_tls:
+      enabled: true
+      sign_cert_file: "/etc/opengm-ca/certs/server_sign.crt"
+      sign_key_file: "/etc/opengm-ca/certs/server_sign.key"
+      enc_cert_file: "/etc/opengm-ca/certs/server_enc.crt"
+      enc_key_file: "/etc/opengm-ca/certs/server_enc.key"
+
+database:
+  driver: "opengauss"
+  host: "localhost"
+  port: 5432
+  user: "ca_admin"
+  password: "${DB_PASSWORD}"  # 从环境变量读取
+  dbname: "opengm_ca"
+  ssl_mode: "disable"
+  pool:
+    max_open: 50
+    max_idle: 10
+    max_lifetime: "1h"
+    max_idle_time: "30m"
+
+# CA引擎配置
+ca:
+  # 根CA配置(初始化后锁定)
+  root_ca:
+    subject:
+      common_name: "openGM Root CA"
+      organization: "MyOrganization"
+      country: "CN"
+    algorithm: "SM2"
+    validity_years: 20
+    key_size: 256
+    
+  # 中间CA配置
+  intermediate_cas:
+    - ca_name: "SSL-CA"
+      subject:
+        common_name: "openGM SSL Intermediate CA"
+        organization: "MyOrganization"
+      algorithm: "SM2"
+      validity_years: 10
+      cert_types: ["SSL"]
+      max_path_len: 0
+      
+    - ca_name: "AUTH-CA"
+      subject:
+        common_name: "openGM Auth Intermediate CA"
+        organization: "MyOrganization"
+      algorithm: "SM2"
+      validity_years: 10
+      cert_types: ["AUTH"]
+      max_path_len: 0
+      
+    - ca_name: "VPN-CA"
+      subject:
+        common_name: "openGM VPN Intermediate CA"
+        organization: "MyOrganization"
+      algorithm: "SM2"
+      validity_years: 10
+      cert_types: ["VPN_SIGN", "VPN_ENC"]
+      max_path_len: 0
+
+# 证书默认策略
+cert_policy:
+  default_validity_days: 365
+  max_validity_days: 3650
+  min_key_size:
+    RSA: 2048
+    EC: 256
+    SM2: 256
+  allowed_algorithms: ["SM2", "RSA2048", "RSA4096", "EC256", "EC384"]
+  allowed_hash_algorithms: ["SM3", "SHA256", "SHA384", "SHA512"]
+
+# 私钥管理
+key_management:
+  # 主密钥配置(用于加密存储私钥)
+  master_key:
+    source: "env"           # env | file | hsm
+    env_name: "CA_MASTER_KEY"
+    file_path: ""
+    version: 1
+    
+  # 私钥导出策略
+  export:
+    requires_approval: true
+    max_daily_exports: 10
+    max_exports_per_key: 3
+    approval_levels: 2       # 需要几级审批
+    audit_level: "CRITICAL"
+    
+  # 密钥托管(escrow) - 加密私钥由CA托管
+  escrow:
+    enabled: true
+    encryption_algorithm: "SM4"
+    key_split_threshold: 2   # 门限密钥分享(如Shamir)
+    key_split_total: 3
+
+# CRL配置
+crl:
+  update_interval_hours: 24
+  next_update_hours: 48
+  include_expired_entries: false
+  distribution_points:
+    - "http://ca.example.com/crl/{ca_name}.crl"
+    - "http://ca-backup.example.com/crl/{ca_name}.crl"
+
+# OCSP配置
+ocsp:
+  enabled: true
+  responder_url: "http://ocsp.example.com"
+  response_validity_hours: 24
+  
+# 审计日志
+audit:
+  retention_days: 2555      # 7年
+  async_write: true
+  hash_chain_enabled: true
+  
+# 认证与授权
+auth:
+  jwt:
+    secret: "${JWT_SECRET}"
+    issuer: "openGM-CA"
+    access_token_ttl: "1h"
+    refresh_token_ttl: "168h"  # 7天
+  api_key:
+    header_name: "X-API-Key"
+    rate_limit_per_minute: 100
+  
+# 日志
+log:
+  level: "info"             # debug | info | warn | error
+  format: "json"            # json | console
+  output: "stdout"          # stdout | file
+  file_path: "/var/log/opengm-ca/app.log"
+  max_size_mb: 100
+  max_backups: 10
+  max_age_days: 30
