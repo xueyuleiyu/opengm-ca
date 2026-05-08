@@ -81,10 +81,10 @@ func (h *CertificateHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": "OK",
 		"data": gin.H{
-			"total":      total,
-			"page":       page,
-			"page_size":  pageSize,
-			"items":      certs,
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+			"items":     certs,
 		},
 	})
 }
@@ -115,8 +115,8 @@ func (h *CertificateHandler) Revoke(c *gin.Context) {
 	}
 
 	var req struct {
-		Reason      int    `json:"reason" binding:"required"`
-		ReasonText  string `json:"reason_text" binding:"required"`
+		Reason     int    `json:"reason" binding:"required"`
+		ReasonText string `json:"reason_text" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_PARAMETER", "message": err.Error()})

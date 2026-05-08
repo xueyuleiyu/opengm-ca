@@ -12,17 +12,17 @@ import (
 
 // Config 全局配置结构
 type Config struct {
-	Server          ServerConfig          `mapstructure:"server"`
-	Database        DatabaseConfig        `mapstructure:"database"`
-	CA              CAConfig                `mapstructure:"ca"`
-	CertPolicy      CertPolicyConfig        `mapstructure:"cert_policy"`
-	CertTemplates   map[string]CertTemplateConfig `mapstructure:"cert_templates"`
-	KeyManagement   KeyManagementConfig     `mapstructure:"key_management"`
-	CRL             CRLConfig               `mapstructure:"crl"`
-	OCSP            OCSPConfig              `mapstructure:"ocsp"`
-	Audit           AuditConfig             `mapstructure:"audit"`
-	Auth            AuthConfig              `mapstructure:"auth"`
-	Log             LogConfig               `mapstructure:"log"`
+	Server        ServerConfig                  `mapstructure:"server"`
+	Database      DatabaseConfig                `mapstructure:"database"`
+	CA            CAConfig                      `mapstructure:"ca"`
+	CertPolicy    CertPolicyConfig              `mapstructure:"cert_policy"`
+	CertTemplates map[string]CertTemplateConfig `mapstructure:"cert_templates"`
+	KeyManagement KeyManagementConfig           `mapstructure:"key_management"`
+	CRL           CRLConfig                     `mapstructure:"crl"`
+	OCSP          OCSPConfig                    `mapstructure:"ocsp"`
+	Audit         AuditConfig                   `mapstructure:"audit"`
+	Auth          AuthConfig                    `mapstructure:"auth"`
+	Log           LogConfig                     `mapstructure:"log"`
 }
 
 // ServerConfig 服务器配置
@@ -34,15 +34,15 @@ type ServerConfig struct {
 
 // TLSConfig TLS配置
 type TLSConfig struct {
-	Enabled     bool       `mapstructure:"enabled"`
-	CertFile    string     `mapstructure:"cert_file"`
-	KeyFile     string     `mapstructure:"key_file"`
-	GMTLS       GMTLSConfig `mapstructure:"gm_tls"`
+	Enabled  bool        `mapstructure:"enabled"`
+	CertFile string      `mapstructure:"cert_file"`
+	KeyFile  string      `mapstructure:"key_file"`
+	GMTLS    GMTLSConfig `mapstructure:"gm_tls"`
 }
 
 // GMTLSConfig 国密TLS配置
 type GMTLSConfig struct {
-	Enabled     bool   `mapstructure:"enabled"`
+	Enabled      bool   `mapstructure:"enabled"`
 	SignCertFile string `mapstructure:"sign_cert_file"`
 	SignKeyFile  string `mapstructure:"sign_key_file"`
 	EncCertFile  string `mapstructure:"enc_cert_file"`
@@ -51,14 +51,14 @@ type GMTLSConfig struct {
 
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
-	Driver   string          `mapstructure:"driver"`
-	Host     string          `mapstructure:"host"`
-	Port     int             `mapstructure:"port"`
-	User     string          `mapstructure:"user"`
-	Password string          `mapstructure:"password"`
-	DBName   string          `mapstructure:"dbname"`
-	SSLMode  string          `mapstructure:"ssl_mode"`
-	Pool     DBPoolConfig    `mapstructure:"pool"`
+	Driver   string       `mapstructure:"driver"`
+	Host     string       `mapstructure:"host"`
+	Port     int          `mapstructure:"port"`
+	User     string       `mapstructure:"user"`
+	Password string       `mapstructure:"password"`
+	DBName   string       `mapstructure:"dbname"`
+	SSLMode  string       `mapstructure:"ssl_mode"`
+	Pool     DBPoolConfig `mapstructure:"pool"`
 }
 
 // DBPoolConfig 连接池配置
@@ -71,16 +71,16 @@ type DBPoolConfig struct {
 
 // CAConfig CA引擎配置
 type CAConfig struct {
-	RootCA           RootCAConfig           `mapstructure:"root_ca"`
-	IntermediateCAs  []IntermediateCAConfig `mapstructure:"intermediate_cas"`
+	RootCA          RootCAConfig           `mapstructure:"root_ca"`
+	IntermediateCAs []IntermediateCAConfig `mapstructure:"intermediate_cas"`
 }
 
 // RootCAConfig 根CA配置
 type RootCAConfig struct {
-	Subject        SubjectConfig `mapstructure:"subject"`
-	Algorithm      string        `mapstructure:"algorithm"`
-	ValidityYears  int           `mapstructure:"validity_years"`
-	KeySize        int           `mapstructure:"key_size"`
+	Subject       SubjectConfig `mapstructure:"subject"`
+	Algorithm     string        `mapstructure:"algorithm"`
+	ValidityYears int           `mapstructure:"validity_years"`
+	KeySize       int           `mapstructure:"key_size"`
 }
 
 // IntermediateCAConfig 中间CA配置
@@ -105,17 +105,17 @@ type SubjectConfig struct {
 
 // CertPolicyConfig 证书策略配置
 type CertPolicyConfig struct {
-	DefaultValidityDays   int               `mapstructure:"default_validity_days"`
-	MaxValidityDays       int               `mapstructure:"max_validity_days"`
-	MinKeySize            map[string]int    `mapstructure:"min_key_size"`
-	AllowedAlgorithms     []string          `mapstructure:"allowed_algorithms"`
-	AllowedHashAlgorithms []string          `mapstructure:"allowed_hash_algorithms"`
+	DefaultValidityDays   int            `mapstructure:"default_validity_days"`
+	MaxValidityDays       int            `mapstructure:"max_validity_days"`
+	MinKeySize            map[string]int `mapstructure:"min_key_size"`
+	AllowedAlgorithms     []string       `mapstructure:"allowed_algorithms"`
+	AllowedHashAlgorithms []string       `mapstructure:"allowed_hash_algorithms"`
 }
 
 // CertTemplateConfig 证书模板配置
 type CertTemplateConfig struct {
-	KeyUsage      []string `mapstructure:"key_usage"`
-	ExtKeyUsage   []string `mapstructure:"ext_key_usage"`
+	KeyUsage    []string `mapstructure:"key_usage"`
+	ExtKeyUsage []string `mapstructure:"ext_key_usage"`
 }
 
 // KeyManagementConfig 密钥管理配置
@@ -127,49 +127,51 @@ type KeyManagementConfig struct {
 
 // MasterKeyConfig 主密钥配置
 type MasterKeyConfig struct {
-	Source  string `mapstructure:"source"`
-	EnvName string `mapstructure:"env_name"`
+	Source   string `mapstructure:"source"`
+	EnvName  string `mapstructure:"env_name"`
 	FilePath string `mapstructure:"file_path"`
-	Version int    `mapstructure:"version"`
+	Version  int    `mapstructure:"version"`
 }
 
 // KeyExportConfig 密钥导出配置
 type KeyExportConfig struct {
-	RequiresApproval  bool   `mapstructure:"requires_approval"`
-	MaxDailyExports   int    `mapstructure:"max_daily_exports"`
-	MaxExportsPerKey  int    `mapstructure:"max_exports_per_key"`
-	ApprovalLevels    int    `mapstructure:"approval_levels"`
-	AuditLevel        string `mapstructure:"audit_level"`
+	RequiresApproval bool   `mapstructure:"requires_approval"`
+	MaxDailyExports  int    `mapstructure:"max_daily_exports"`
+	MaxExportsPerKey int    `mapstructure:"max_exports_per_key"`
+	ApprovalLevels   int    `mapstructure:"approval_levels"`
+	AuditLevel       string `mapstructure:"audit_level"`
 }
 
 // KeyEscrowConfig 密钥托管配置
 type KeyEscrowConfig struct {
-	Enabled              bool   `mapstructure:"enabled"`
-	EncryptionAlgorithm  string `mapstructure:"encryption_algorithm"`
-	KeySplitThreshold    int    `mapstructure:"key_split_threshold"`
-	KeySplitTotal        int    `mapstructure:"key_split_total"`
+	Enabled             bool   `mapstructure:"enabled"`
+	EncryptionAlgorithm string `mapstructure:"encryption_algorithm"`
+	KeySplitThreshold   int    `mapstructure:"key_split_threshold"`
+	KeySplitTotal       int    `mapstructure:"key_split_total"`
 }
 
 // CRLConfig CRL配置
 type CRLConfig struct {
-	UpdateIntervalHours  int      `mapstructure:"update_interval_hours"`
-	NextUpdateHours      int      `mapstructure:"next_update_hours"`
-	IncludeExpiredEntries bool    `mapstructure:"include_expired_entries"`
-	DistributionPoints   []string `mapstructure:"distribution_points"`
+	UpdateIntervalHours   int      `mapstructure:"update_interval_hours"`
+	NextUpdateHours       int      `mapstructure:"next_update_hours"`
+	IncludeExpiredEntries bool     `mapstructure:"include_expired_entries"`
+	DistributionPoints    []string `mapstructure:"distribution_points"`
 }
 
 // OCSPConfig OCSP配置
 type OCSPConfig struct {
-	Enabled              bool   `mapstructure:"enabled"`
-	ResponderURL         string `mapstructure:"responder_url"`
-	ResponseValidityHours int   `mapstructure:"response_validity_hours"`
+	Enabled               bool   `mapstructure:"enabled"`
+	ResponderURL          string `mapstructure:"responder_url"`
+	ResponseValidityHours int    `mapstructure:"response_validity_hours"`
+	ResponderCertFile     string `mapstructure:"responder_cert_file"`
+	ResponderKeyFile      string `mapstructure:"responder_key_file"`
 }
 
 // AuditConfig 审计配置
 type AuditConfig struct {
-	RetentionDays     int  `mapstructure:"retention_days"`
-	AsyncWrite        bool `mapstructure:"async_write"`
-	HashChainEnabled  bool `mapstructure:"hash_chain_enabled"`
+	RetentionDays    int  `mapstructure:"retention_days"`
+	AsyncWrite       bool `mapstructure:"async_write"`
+	HashChainEnabled bool `mapstructure:"hash_chain_enabled"`
 }
 
 // AuthConfig 认证配置
@@ -180,10 +182,10 @@ type AuthConfig struct {
 
 // JWTConfig JWT配置
 type JWTConfig struct {
-	Secret           string        `mapstructure:"secret"`
-	Issuer           string        `mapstructure:"issuer"`
-	AccessTokenTTL   time.Duration `mapstructure:"access_token_ttl"`
-	RefreshTokenTTL  time.Duration `mapstructure:"refresh_token_ttl"`
+	Secret          string        `mapstructure:"secret"`
+	Issuer          string        `mapstructure:"issuer"`
+	AccessTokenTTL  time.Duration `mapstructure:"access_token_ttl"`
+	RefreshTokenTTL time.Duration `mapstructure:"refresh_token_ttl"`
 }
 
 // APIKeyConfig API密钥配置

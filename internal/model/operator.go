@@ -169,21 +169,21 @@ type OperatorLoginResponse struct {
 
 // CreateOperatorRequest 创建操作员请求
 type CreateOperatorRequest struct {
-	Username  string       `json:"username" validate:"required,max=32"`
-	Password  string       `json:"password" validate:"required,min=8,max=64"`
-	RealName  string       `json:"real_name" validate:"required,max=64"`
-	Email     string       `json:"email" validate:"required,email"`
-	Phone     string       `json:"phone" validate:"omitempty,max=20"`
-	Role      OperatorRole `json:"role" validate:"required"`
+	Username string       `json:"username" validate:"required,max=32"`
+	Password string       `json:"password" validate:"required,min=8,max=64"`
+	RealName string       `json:"real_name" validate:"required,max=64"`
+	Email    string       `json:"email" validate:"required,email"`
+	Phone    string       `json:"phone" validate:"omitempty,max=20"`
+	Role     OperatorRole `json:"role" validate:"required"`
 }
 
 // UpdateOperatorRequest 更新操作员请求
 type UpdateOperatorRequest struct {
-	RealName   *string       `json:"real_name,omitempty" validate:"omitempty,max=64"`
-	Email      *string       `json:"email,omitempty" validate:"omitempty,email"`
-	Phone      *string       `json:"phone,omitempty" validate:"omitempty,max=20"`
-	Role       *OperatorRole `json:"role,omitempty"`
-	IsActive   *bool         `json:"is_active,omitempty"`
+	RealName    *string       `json:"real_name,omitempty" validate:"omitempty,max=64"`
+	Email       *string       `json:"email,omitempty" validate:"omitempty,email"`
+	Phone       *string       `json:"phone,omitempty" validate:"omitempty,max=20"`
+	Role        *OperatorRole `json:"role,omitempty"`
+	IsActive    *bool         `json:"is_active,omitempty"`
 	Permissions []string      `json:"permissions,omitempty"`
 }
 

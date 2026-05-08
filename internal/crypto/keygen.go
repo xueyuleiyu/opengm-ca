@@ -12,8 +12,8 @@ import (
 	"encoding/pem"
 	"fmt"
 
-	smx509 "github.com/emmansun/gmsm/smx509"
 	"github.com/emmansun/gmsm/sm2"
+	smx509 "github.com/emmansun/gmsm/smx509"
 )
 
 // KeyGenerator 密钥生成器

@@ -13,16 +13,16 @@ import (
 
 // Router API路由
 type Router struct {
-	cfg            *config.Config
-	systemHandler  *handler.SystemHandler
-	certHandler    *handler.CertificateHandler
-	keyHandler     *handler.KeyHandler
-	auditHandler   *handler.AuditHandler
-	authHandler    *handler.AuthHandler
+	cfg             *config.Config
+	systemHandler   *handler.SystemHandler
+	certHandler     *handler.CertificateHandler
+	keyHandler      *handler.KeyHandler
+	auditHandler    *handler.AuditHandler
+	authHandler     *handler.AuthHandler
 	operatorHandler *handler.OperatorHandler
-	hsmHandler     *handler.HSMHandler
-	crlHandler     *handler.CRLHandler
-	ocspHandler    *handler.OCSPHandler
+	hsmHandler      *handler.HSMHandler
+	crlHandler      *handler.CRLHandler
+	ocspHandler     *handler.OCSPHandler
 }
 
 // NewRouter 创建路由
@@ -39,16 +39,16 @@ func NewRouter(
 	ocspHandler *handler.OCSPHandler,
 ) *Router {
 	return &Router{
-		cfg:            cfg,
-		systemHandler:  handler.NewSystemHandler(mgmtSvc),
-		certHandler:    handler.NewCertificateHandler(enrollSvc, mgmtSvc),
-		keyHandler:     handler.NewKeyHandler(exportSvc),
-		auditHandler:   handler.NewAuditHandler(auditSvc),
-		authHandler:    authHandler,
+		cfg:             cfg,
+		systemHandler:   handler.NewSystemHandler(mgmtSvc),
+		certHandler:     handler.NewCertificateHandler(enrollSvc, mgmtSvc),
+		keyHandler:      handler.NewKeyHandler(exportSvc),
+		auditHandler:    handler.NewAuditHandler(auditSvc),
+		authHandler:     authHandler,
 		operatorHandler: opHandler,
-		hsmHandler:     hsmHandler,
-		crlHandler:     crlHandler,
-		ocspHandler:    ocspHandler,
+		hsmHandler:      hsmHandler,
+		crlHandler:      crlHandler,
+		ocspHandler:     ocspHandler,
 	}
 }
 

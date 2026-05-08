@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/opengm-ca/opengm-ca/internal/config"
 )
 
@@ -186,5 +187,5 @@ func RequestIDMiddleware() gin.HandlerFunc {
 }
 
 func generateRequestID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	return uuid.New().String()
 }

@@ -71,9 +71,9 @@ func (s *ManagementService) RevokeCertificate(ctx context.Context, certID int64,
 	// 审计日志
 	s.auditSvc.Log(ctx, model.EventCertRevoke, model.SeverityWarn, revokedBy, actorIP, "CERTIFICATE", cert.SerialNumber,
 		fmt.Sprintf("吊销证书: %s, 原因: %s", cert.SubjectDN, reasonText), map[string]interface{}{
-			"cert_id":  certID,
-			"serial":   cert.SerialNumber,
-			"reason":   reason,
+			"cert_id":     certID,
+			"serial":      cert.SerialNumber,
+			"reason":      reason,
 			"reason_text": reasonText,
 		}, model.ResultSuccess, "")
 
@@ -93,8 +93,8 @@ func (s *ManagementService) GetSystemStats(ctx context.Context) (map[string]inte
 	}
 
 	return map[string]interface{}{
-		"total_certificates":  total,
-		"active_certificates": stats["VALID"],
+		"total_certificates":   total,
+		"active_certificates":  stats["VALID"],
 		"revoked_certificates": stats["REVOKED"],
 		"expired_certificates": stats["EXPIRED"],
 	}, nil

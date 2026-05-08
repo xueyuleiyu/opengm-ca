@@ -70,12 +70,12 @@ func (r *KeyRepository) IncrementExportCount(ctx context.Context, keyID string) 
 	return err
 }
 
-// GetDailyExportCount 获取当日导出次数
+// GetDailyExportCount 获取当日导出次数（基于 last_export_at 当天的不同密钥数量）
 func (r *KeyRepository) GetDailyExportCount(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.NewSelect().
 		Model((*model.CertKey)(nil)).
-		ColumnExpr("COALESCE(SUM(export_count), 0)").
+		ColumnExpr("COUNT(*)").
 		Where("DATE(last_export_at) = CURRENT_DATE").
 		Scan(ctx, &count)
 	return count, err

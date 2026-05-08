@@ -10,12 +10,12 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 
-	smx509 "github.com/emmansun/gmsm/smx509"
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	smx509 "github.com/emmansun/gmsm/smx509"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -29,9 +29,9 @@ import (
 
 // CAEngine CA引擎核心
 type CAEngine struct {
-	cfg       *config.CAConfig
-	rootCA    *CAInstance
-	subCAs    map[string]*CAInstance // ca_name -> CAInstance
+	cfg    *config.CAConfig
+	rootCA *CAInstance
+	subCAs map[string]*CAInstance // ca_name -> CAInstance
 }
 
 // CAInstance CA实例(根CA或中间CA)
@@ -171,15 +171,7 @@ func (e *CAEngine) decryptKeyFile(data []byte, keyEncryptor KeyEncryptor) ([]byt
 // encryptKeyFile 加密私钥为文件格式
 func (e *CAEngine) encryptKeyFile(pemData []byte, keyEncryptor KeyEncryptor) ([]byte, error) {
 	if keyEncryptor == nil {
-		// 未加密存储(开发/测试环境)
-		wrapper := struct {
-			Encrypted bool   `json:"encrypted"`
-			PEM       string `json:"pem"`
-		}{
-			Encrypted: false,
-			PEM:       string(pemData),
-		}
-		return json.Marshal(wrapper)
+		return nil, fmt.Errorf("主密钥加密器未初始化，禁止以明文形式存储CA私钥")
 	}
 
 	ct, salt, nonce, tag, err := keyEncryptor.EncryptPrivateKey(pemData)
@@ -229,19 +221,19 @@ func (e *CAEngine) SaveToStorage(ctx context.Context, caRepo CARepository, keyEn
 
 func (e *CAEngine) saveCAInstance(ctx context.Context, caRepo CARepository, keyEncryptor KeyEncryptor, keyDir string, instance *CAInstance, caType model.CAType, parent *CAInstance) error {
 	caRecord := &model.CAChain{
-		CAName:     instance.CAName,
-		CAType:     caType,
-		CertPEM:    instance.CertPEM,
-		CertDER:    instance.Cert.Raw,
-		SubjectDN:  instance.Cert.Subject.String(),
-		IssuerDN:   instance.Cert.Issuer.String(),
+		CAName:       instance.CAName,
+		CAType:       caType,
+		CertPEM:      instance.CertPEM,
+		CertDER:      instance.Cert.Raw,
+		SubjectDN:    instance.Cert.Subject.String(),
+		IssuerDN:     instance.Cert.Issuer.String(),
 		SerialNumber: fmt.Sprintf("%X", instance.Cert.SerialNumber),
-		Algorithm:  e.cfg.RootCA.Algorithm,
-		KeyID:      fmt.Sprintf("ca-key-%s", instance.CAName),
-		ValidFrom:  instance.Cert.NotBefore,
-		ValidTo:    instance.Cert.NotAfter,
-		IsActive:   true,
-		MaxPathLen: 0,
+		Algorithm:    e.cfg.RootCA.Algorithm,
+		KeyID:        fmt.Sprintf("ca-key-%s", instance.CAName),
+		ValidFrom:    instance.Cert.NotBefore,
+		ValidTo:      instance.Cert.NotAfter,
+		IsActive:     true,
+		MaxPathLen:   0,
 	}
 
 	if parent != nil {
@@ -451,9 +443,9 @@ func (e *CAEngine) createIntermediateCA(ctx context.Context, parent *CAInstance,
 	template := &x509.Certificate{
 		SerialNumber: interSerial,
 		Subject: pkix.Name{
-			CommonName:         req.Subject.CommonName,
-			Organization:       []string{req.Subject.Organization},
-			Country:            []string{req.Subject.Country},
+			CommonName:   req.Subject.CommonName,
+			Organization: []string{req.Subject.Organization},
+			Country:      []string{req.Subject.Country},
 		},
 		NotBefore:             time.Now().Add(-24 * time.Hour),
 		NotAfter:              time.Now().AddDate(req.ValidityYears, 0, 0),

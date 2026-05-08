@@ -36,14 +36,14 @@ const (
 
 // CertKey 密钥对领域模型
 type CertKey struct {
-	ID               int64          `bun:"id,pk,autoincrement" json:"id"`
-	KeyID            string         `bun:"key_id,notnull,unique" json:"key_id"`
-	KeyType          KeyType        `bun:"key_type,notnull" json:"key_type"`
-	Algorithm        KeyAlgorithm   `bun:"algorithm,notnull" json:"algorithm"`
-	PublicKeyPEM     string         `bun:"public_key_pem,notnull" json:"public_key_pem"`
-	PublicKeyDER     []byte         `bun:"public_key_der" json:"public_key_der,omitempty"`
-	PublicKeyHash    string         `bun:"public_key_hash,notnull" json:"public_key_hash"`
-	StorageType      KeyStorageType `bun:"storage_type,notnull" json:"storage_type"`
+	ID            int64          `bun:"id,pk,autoincrement" json:"id"`
+	KeyID         string         `bun:"key_id,notnull,unique" json:"key_id"`
+	KeyType       KeyType        `bun:"key_type,notnull" json:"key_type"`
+	Algorithm     KeyAlgorithm   `bun:"algorithm,notnull" json:"algorithm"`
+	PublicKeyPEM  string         `bun:"public_key_pem,notnull" json:"public_key_pem"`
+	PublicKeyDER  []byte         `bun:"public_key_der" json:"public_key_der,omitempty"`
+	PublicKeyHash string         `bun:"public_key_hash,notnull" json:"public_key_hash"`
+	StorageType   KeyStorageType `bun:"storage_type,notnull" json:"storage_type"`
 
 	// 软件加密存储的私钥
 	PrivateKeyEnc    []byte `bun:"private_key_enc" json:"-"` // JSON序列化时忽略
@@ -122,12 +122,12 @@ type KeyExportRequest struct {
 
 // KeyExportResponse 私钥导出响应
 type KeyExportResponse struct {
-	KeyID            string     `json:"key_id"`
-	PrivateKeyPEM    string     `json:"private_key_pem"`
-	PublicKeyPEM     string     `json:"public_key_pem"`
-	Algorithm        string     `json:"algorithm"`
-	ExportedAt       time.Time  `json:"exported_at"`
-	AuditLogID       string     `json:"audit_log_id"`
-	RemainingExports *int       `json:"remaining_exports,omitempty"`
-	Warning          string     `json:"warning"`
+	KeyID            string    `json:"key_id"`
+	PrivateKeyPEM    string    `json:"private_key_pem"`
+	PublicKeyPEM     string    `json:"public_key_pem"`
+	Algorithm        string    `json:"algorithm"`
+	ExportedAt       time.Time `json:"exported_at"`
+	AuditLogID       string    `json:"audit_log_id"`
+	RemainingExports *int      `json:"remaining_exports,omitempty"`
+	Warning          string    `json:"warning"`
 }

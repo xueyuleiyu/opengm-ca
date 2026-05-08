@@ -3,52 +3,118 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"math/big"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/opengm-ca/opengm-ca/internal/metrics"
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/opengm-ca/opengm-ca/internal/repository"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ocsp"
 )
 
 var (
-	// 临时OCSP Responder（生产环境应使用由CA签名的正式Responder证书）
-	ocspResponderKey  *ecdsa.PrivateKey
+	// ocspResponderKey OCSP Responder 签名私钥
+	ocspResponderKey crypto.Signer
+	// ocspResponderCert OCSP Responder 证书
 	ocspResponderCert *x509.Certificate
+	// ocspResponderInitialized 标记是否已初始化
+	ocspResponderInitialized bool
 )
 
-func init() {
-	var err error
-	ocspResponderKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+// InitOCSPResponder 初始化 OCSP Responder 证书和密钥
+// 如果配置了正式证书路径，则加载正式证书；否则生成临时自签名证书（仅用于测试）
+func InitOCSPResponder(certFile, keyFile string) error {
+	if certFile != "" && keyFile != "" {
+		certPEM, err := os.ReadFile(certFile)
+		if err != nil {
+			return err
+		}
+		keyPEM, err := os.ReadFile(keyFile)
+		if err != nil {
+			return err
+		}
+		cert, err := parseCertificatePEM(certPEM)
+		if err != nil {
+			return err
+		}
+		key, err := parsePrivateKeyPEM(keyPEM)
+		if err != nil {
+			return err
+		}
+		ocspResponderCert = cert
+		ocspResponderKey = key
+		ocspResponderInitialized = true
+		log.Info().Str("subject", cert.Subject.String()).Msg("OCSP Responder 使用配置的正式证书")
+		return nil
+	}
+
+	// 未配置时生成临时证书（仅用于测试/开发）
+	log.Warn().Msg("OCSP Responder 未配置正式证书，正在生成临时自签名证书（生产环境不可信任）")
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
 			CommonName: "openGM-CA OCSP Responder (TEMPORARY)",
 		},
-		NotBefore:   time.Now().Add(-24 * time.Hour),
-		NotAfter:    time.Now().AddDate(1, 0, 0),
-		KeyUsage:    x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageOCSPSigning},
+		NotBefore:             time.Now().Add(-24 * time.Hour),
+		NotAfter:              time.Now().AddDate(1, 0, 0),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageOCSPSigning},
+		BasicConstraintsValid: true,
 	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, template, template, &ocspResponderKey.PublicKey, ocspResponderKey)
+	certBytes, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
-		panic(err)
+		return err
 	}
-	ocspResponderCert, err = x509.ParseCertificate(certBytes)
+	cert, err := x509.ParseCertificate(certBytes)
 	if err != nil {
-		panic(err)
+		return err
 	}
+	ocspResponderCert = cert
+	ocspResponderKey = key
+	ocspResponderInitialized = true
+	return nil
+}
+
+func parseCertificatePEM(data []byte) (*x509.Certificate, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, os.ErrInvalid
+	}
+	return x509.ParseCertificate(block.Bytes)
+}
+
+func parsePrivateKeyPEM(data []byte) (crypto.Signer, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, os.ErrInvalid
+	}
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		key, err = x509.ParseECPrivateKey(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+	}
+	signer, ok := key.(crypto.Signer)
+	if !ok {
+		return nil, os.ErrInvalid
+	}
+	return signer, nil
 }
 
 // OCSPHandler OCSP响应Handler
@@ -67,6 +133,11 @@ func NewOCSPHandler(certRepo *repository.CertificateRepository, caRepo *reposito
 // 或JSON格式: POST { "serial_number": "...", "ca_name": "..." }
 // 或查询参数: GET ?serial=...&ca_name=...
 func (h *OCSPHandler) HandleRequest(c *gin.Context) {
+	if !ocspResponderInitialized {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "OCSP Responder 未初始化"})
+		return
+	}
+
 	metrics.IncOCSPQueries()
 	ctx := c.Request.Context()
 

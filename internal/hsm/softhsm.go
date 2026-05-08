@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	smx509 "github.com/emmansun/gmsm/smx509"
 	"github.com/emmansun/gmsm/sm2"
+	smx509 "github.com/emmansun/gmsm/smx509"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/pbkdf2"
 )
@@ -43,6 +43,7 @@ type keyRecord struct {
 	CreatedAt    int64  `json:"created_at"`
 	EncryptedKey []byte `json:"encrypted_key"`
 	Nonce        []byte `json:"nonce"`
+	KEKSalt      []byte `json:"kek_salt,omitempty"` // 独立密钥加密盐值（v2格式）
 	PublicKeyPEM string `json:"public_key_pem"`
 }
 
@@ -139,8 +140,8 @@ func (h *SoftHSM) GenerateKeyPair(algorithm string, keySize int, keyType string)
 		}
 	}
 
-	// 加密存储
-	encrypted, nonce, err := h.encrypt(privBytes)
+	// 加密存储（使用独立盐值）
+	encrypted, nonce, kekSalt, err := h.encrypt(privBytes)
 	if err != nil {
 		return "", nil, fmt.Errorf("加密私钥失败: %w", err)
 	}
@@ -163,6 +164,7 @@ func (h *SoftHSM) GenerateKeyPair(algorithm string, keySize int, keyType string)
 		CreatedAt:    time.Now().Unix(),
 		EncryptedKey: encrypted,
 		Nonce:        nonce,
+		KEKSalt:      kekSalt,
 		PublicKeyPEM: pubPEM,
 	}
 
@@ -186,7 +188,7 @@ func (h *SoftHSM) Sign(handle string, digest []byte, hashAlgo string) ([]byte, e
 	}
 
 	// 解密私钥
-	privBytes, err := h.decrypt(record.EncryptedKey, record.Nonce)
+	privBytes, err := h.decrypt(record.EncryptedKey, record.Nonce, record.KEKSalt)
 	if err != nil {
 		return nil, fmt.Errorf("解密私钥失败: %w", err)
 	}
@@ -281,7 +283,7 @@ func (h *SoftHSM) ImportKey(algorithm string, privateKey interface{}, keyType st
 		return "", fmt.Errorf("序列化私钥失败: %w", err)
 	}
 
-	encrypted, nonce, err := h.encrypt(privBytes)
+	encrypted, nonce, kekSalt, err := h.encrypt(privBytes)
 	if err != nil {
 		return "", fmt.Errorf("加密私钥失败: %w", err)
 	}
@@ -313,6 +315,7 @@ func (h *SoftHSM) ImportKey(algorithm string, privateKey interface{}, keyType st
 		CreatedAt:    time.Now().Unix(),
 		EncryptedKey: encrypted,
 		Nonce:        nonce,
+		KEKSalt:      kekSalt,
 		PublicKeyPEM: pubPEM,
 	}
 
@@ -384,27 +387,42 @@ func loadOrGenerateSalt(baseDir string) ([]byte, error) {
 	return salt, nil
 }
 
-// 内部方法：加密
-func (h *SoftHSM) encrypt(plaintext []byte) ([]byte, []byte, error) {
-	block, err := aes.NewCipher(h.masterKey)
+// deriveKEK 使用主密钥和独立盐值派生密钥加密密钥（KEK）
+func (h *SoftHSM) deriveKEK(kekSalt []byte) []byte {
+	if len(kekSalt) == 0 {
+		return h.masterKey
+	}
+	return pbkdf2.Key(h.masterKey, kekSalt, 10000, 32, sha256.New)
+}
+
+// 内部方法：加密（返回 ciphertext, nonce, kekSalt）
+func (h *SoftHSM) encrypt(plaintext []byte) ([]byte, []byte, []byte, error) {
+	// 为每个密钥生成独立盐值
+	kekSalt := make([]byte, 16)
+	if _, err := io.ReadFull(rand.Reader, kekSalt); err != nil {
+		return nil, nil, nil, err
+	}
+	kek := h.deriveKEK(kekSalt)
+	block, err := aes.NewCipher(kek)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
-	return ciphertext, nonce, nil
+	return ciphertext, nonce, kekSalt, nil
 }
 
-// 内部方法：解密
-func (h *SoftHSM) decrypt(ciphertext []byte, nonce []byte) ([]byte, error) {
-	block, err := aes.NewCipher(h.masterKey)
+// 内部方法：解密（兼容旧格式：无 KEKSalt 时回退到 masterKey）
+func (h *SoftHSM) decrypt(ciphertext []byte, nonce []byte, kekSalt []byte) ([]byte, error) {
+	kek := h.deriveKEK(kekSalt)
+	block, err := aes.NewCipher(kek)
 	if err != nil {
 		return nil, err
 	}

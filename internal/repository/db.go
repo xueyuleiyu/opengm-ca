@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	_ "gitee.com/opengauss/openGauss-connector-go-pq"
 	"github.com/opengm-ca/opengm-ca/internal/config"
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
-	_ "gitee.com/opengauss/openGauss-connector-go-pq"
 )
 
 // DB 全局数据库实例
@@ -39,7 +39,6 @@ func NewDB(cfg *config.DatabaseConfig) (*DB, error) {
 	}
 
 	db := bun.NewDB(sqldb, pgdialect.New())
-
 
 	log.Info().Str("host", cfg.Host).Int("port", cfg.Port).Str("dbname", cfg.DBName).
 		Msg("数据库连接成功")

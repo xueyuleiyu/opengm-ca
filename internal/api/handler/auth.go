@@ -21,9 +21,9 @@ import (
 
 // AuthHandler 认证Handler
 type AuthHandler struct {
-	cfg        *config.AuthConfig
+	cfg          *config.AuthConfig
 	operatorRepo *repository.OperatorRepository
-	auditSvc   *service.AuditService
+	auditSvc     *service.AuditService
 }
 
 // NewAuthHandler 创建认证Handler
@@ -78,11 +78,27 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// 验证密码
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(req.Password)); err != nil {
-		if incErr := h.operatorRepo.IncrementLoginFail(c.Request.Context(), op.ID); incErr != nil {
+		ctx := c.Request.Context()
+		if incErr := h.operatorRepo.IncrementLoginFail(ctx, op.ID); incErr != nil {
 			log.Warn().Err(incErr).Int("operator_id", op.ID).Msg("增加登录失败计数失败")
 		}
+		// 检查是否需要锁定账户
+		const maxLoginFail = 5
+		const lockDuration = 30 * time.Minute
+		if op.LoginFailCount+1 >= maxLoginFail {
+			lockUntil := time.Now().Add(lockDuration)
+			if lockErr := h.operatorRepo.LockAccount(ctx, op.ID, lockUntil); lockErr != nil {
+				log.Warn().Err(lockErr).Int("operator_id", op.ID).Msg("账户锁定失败")
+			} else {
+				log.Warn().Int("operator_id", op.ID).Time("locked_until", lockUntil).Msg("账户因多次登录失败被锁定")
+				if h.auditSvc != nil {
+					h.auditSvc.Log(ctx, model.EventAdminLogin, model.SeverityCritical, req.Username, c.ClientIP(), "OPERATOR", strconv.Itoa(op.ID),
+						"账户因多次登录失败被锁定", map[string]interface{}{"username": req.Username, "fail_count": op.LoginFailCount + 1}, model.ResultDenied, "")
+				}
+			}
+		}
 		if h.auditSvc != nil {
-			h.auditSvc.Log(c.Request.Context(), model.EventAdminLogin, model.SeverityWarn, req.Username, c.ClientIP(), "OPERATOR", strconv.Itoa(op.ID),
+			h.auditSvc.Log(ctx, model.EventAdminLogin, model.SeverityWarn, req.Username, c.ClientIP(), "OPERATOR", strconv.Itoa(op.ID),
 				"登录失败: 密码错误", map[string]interface{}{"username": req.Username}, model.ResultFailed, "密码错误")
 		}
 		c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "用户名或密码错误"})

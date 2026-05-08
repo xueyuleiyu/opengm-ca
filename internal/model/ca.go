@@ -8,36 +8,36 @@ import (
 type CAType string
 
 const (
-	CATypeRoot          CAType = "ROOT"
-	CATypeIntermediate  CAType = "INTERMEDIATE"
+	CATypeRoot         CAType = "ROOT"
+	CATypeIntermediate CAType = "INTERMEDIATE"
 )
 
 // CAChain CA证书链领域模型
 type CAChain struct {
-	ID            int            `bun:"id,pk,autoincrement" json:"id"`
-	CAName        string         `bun:"ca_name,notnull,unique" json:"ca_name"`
-	CAType        CAType         `bun:"ca_type,notnull" json:"ca_type"`
-	ParentCAID    *int           `bun:"parent_ca_id" json:"parent_ca_id,omitempty"`
-	CertPEM       string         `bun:"cert_pem,notnull" json:"cert_pem"`
-	CertDER       []byte         `bun:"cert_der" json:"cert_der,omitempty"`
-	SubjectDN     string         `bun:"subject_dn,notnull" json:"subject_dn"`
-	IssuerDN      string         `bun:"issuer_dn,notnull" json:"issuer_dn"`
-	SerialNumber  string         `bun:"serial_number,notnull" json:"serial_number"`
-	Algorithm     string         `bun:"algorithm,notnull" json:"algorithm"`
-	KeyID         string         `bun:"key_id,notnull" json:"key_id"`
-	ValidFrom     time.Time      `bun:"valid_from,notnull" json:"valid_from"`
-	ValidTo       time.Time      `bun:"valid_to,notnull" json:"valid_to"`
-	IsActive      bool           `bun:"is_active,default:true" json:"is_active"`
-	CRLDP         string         `bun:"crl_dp" json:"crl_dp,omitempty"`
-	AIAURL        string         `bun:"aia_url" json:"aia_url,omitempty"`
-	MaxPathLen    int            `bun:"max_path_len,default:-1" json:"max_path_len"`
-	CreatedAt     time.Time      `bun:"created_at,default:current_timestamp" json:"created_at"`
-	UpdatedAt     time.Time      `bun:"updated_at,default:current_timestamp" json:"updated_at"`
+	ID           int       `bun:"id,pk,autoincrement" json:"id"`
+	CAName       string    `bun:"ca_name,notnull,unique" json:"ca_name"`
+	CAType       CAType    `bun:"ca_type,notnull" json:"ca_type"`
+	ParentCAID   *int      `bun:"parent_ca_id" json:"parent_ca_id,omitempty"`
+	CertPEM      string    `bun:"cert_pem,notnull" json:"cert_pem"`
+	CertDER      []byte    `bun:"cert_der" json:"cert_der,omitempty"`
+	SubjectDN    string    `bun:"subject_dn,notnull" json:"subject_dn"`
+	IssuerDN     string    `bun:"issuer_dn,notnull" json:"issuer_dn"`
+	SerialNumber string    `bun:"serial_number,notnull" json:"serial_number"`
+	Algorithm    string    `bun:"algorithm,notnull" json:"algorithm"`
+	KeyID        string    `bun:"key_id,notnull" json:"key_id"`
+	ValidFrom    time.Time `bun:"valid_from,notnull" json:"valid_from"`
+	ValidTo      time.Time `bun:"valid_to,notnull" json:"valid_to"`
+	IsActive     bool      `bun:"is_active,default:true" json:"is_active"`
+	CRLDP        string    `bun:"crl_dp" json:"crl_dp,omitempty"`
+	AIAURL       string    `bun:"aia_url" json:"aia_url,omitempty"`
+	MaxPathLen   int       `bun:"max_path_len,default:-1" json:"max_path_len"`
+	CreatedAt    time.Time `bun:"created_at,default:current_timestamp" json:"created_at"`
+	UpdatedAt    time.Time `bun:"updated_at,default:current_timestamp" json:"updated_at"`
 
 	// 关联对象
-	ParentCA      *CAChain       `bun:"rel:belongs-to,join:parent_ca_id=id" json:"parent_ca,omitempty"`
-	ChildCAs      []CAChain      `bun:"rel:has-many,join:id=parent_ca_id" json:"child_cas,omitempty"`
-	Certificates  []Certificate  `bun:"rel:has-many,join:id=ca_id" json:"certificates,omitempty"`
+	ParentCA     *CAChain      `bun:"rel:belongs-to,join:parent_ca_id=id" json:"parent_ca,omitempty"`
+	ChildCAs     []CAChain     `bun:"rel:has-many,join:id=parent_ca_id" json:"child_cas,omitempty"`
+	Certificates []Certificate `bun:"rel:has-many,join:id=ca_id" json:"certificates,omitempty"`
 }
 
 // TableName 返回表名
@@ -63,8 +63,8 @@ func (c *CAChain) CanIssueCertificates() bool {
 
 // CAInitRequest CA初始化请求
 type CAInitRequest struct {
-	RootCA           RootCAInitConfig           `json:"root_ca" validate:"required"`
-	IntermediateCAs  []IntermediateCAInitConfig `json:"intermediate_cas" validate:"required,min=1,dive"`
+	RootCA          RootCAInitConfig           `json:"root_ca" validate:"required"`
+	IntermediateCAs []IntermediateCAInitConfig `json:"intermediate_cas" validate:"required,min=1,dive"`
 }
 
 // RootCAInitConfig 根CA初始化配置
@@ -87,14 +87,14 @@ type IntermediateCAInitConfig struct {
 
 // CAInitResponse CA初始化响应
 type CAInitResponse struct {
-	RootCAID         int                       `json:"root_ca_id"`
-	RootCertPEM      string                    `json:"root_cert_pem"`
-	IntermediateCAs  []IntermediateCAResponse  `json:"intermediate_cas"`
+	RootCAID        int                      `json:"root_ca_id"`
+	RootCertPEM     string                   `json:"root_cert_pem"`
+	IntermediateCAs []IntermediateCAResponse `json:"intermediate_cas"`
 }
 
 // IntermediateCAResponse 中间CA响应
 type IntermediateCAResponse struct {
-	CAID     int    `json:"ca_id"`
-	CAName   string `json:"ca_name"`
-	CertPEM  string `json:"cert_pem"`
+	CAID    int    `json:"ca_id"`
+	CAName  string `json:"ca_name"`
+	CertPEM string `json:"cert_pem"`
 }

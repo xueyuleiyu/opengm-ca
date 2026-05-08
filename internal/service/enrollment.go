@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	smx509 "github.com/emmansun/gmsm/smx509"
 	"github.com/emmansun/gmsm/sm2"
+	smx509 "github.com/emmansun/gmsm/smx509"
 	"github.com/google/uuid"
 	"github.com/opengm-ca/opengm-ca/internal/config"
 	"github.com/opengm-ca/opengm-ca/internal/core"
@@ -31,15 +31,15 @@ import (
 
 // EnrollmentService 证书申请服务
 type EnrollmentService struct {
-	cfg           *config.Config
-	caEngine      *core.CAEngine
-	keyGen        *opengmcrypto.KeyGenerator
-	keyStore      *opengmcrypto.KeyStore
-	certRepo      *repository.CertificateRepository
-	keyRepo       *repository.KeyRepository
-	subjectRepo   *repository.SubjectRepository
-	caRepo        *repository.CAChainRepository
-	auditSvc      *AuditService
+	cfg         *config.Config
+	caEngine    *core.CAEngine
+	keyGen      *opengmcrypto.KeyGenerator
+	keyStore    *opengmcrypto.KeyStore
+	certRepo    *repository.CertificateRepository
+	keyRepo     *repository.KeyRepository
+	subjectRepo *repository.SubjectRepository
+	caRepo      *repository.CAChainRepository
+	auditSvc    *AuditService
 }
 
 // NewEnrollmentService 创建证书申请服务
@@ -150,21 +150,21 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 
 	certHash := sha256.Sum256(certBytes)
 	certModel := &model.Certificate{
-		CertType:      model.CertType(req.CertType),
-		CAID:          ca.ID,
-		SerialNumber:  fmt.Sprintf("%X", cert.SerialNumber),
+		CertType:        model.CertType(req.CertType),
+		CAID:            ca.ID,
+		SerialNumber:    fmt.Sprintf("%X", cert.SerialNumber),
 		SerialNumberDec: cert.SerialNumber.String(),
-		CertPEM:       opengmcrypto.PemEncode(certBytes, "CERTIFICATE"),
-		CertHashSHA256: hex.EncodeToString(certHash[:]),
-		SubjectDN:     cert.Subject.String(),
-		IssuerDN:      cert.Issuer.String(),
-		SignatureAlg:  model.SignatureAlgorithm(cert.SignatureAlgorithm.String()),
-		PublicKeyAlg:  s.mapPublicKeyAlgorithm(req.Algorithm),
-		ValidFrom:     cert.NotBefore,
-		ValidTo:       cert.NotAfter,
-		Status:        model.CertStatusValid,
-		SubjectID:     &subject.ID,
-		IssuedBy:      issuedBy,
+		CertPEM:         opengmcrypto.PemEncode(certBytes, "CERTIFICATE"),
+		CertHashSHA256:  hex.EncodeToString(certHash[:]),
+		SubjectDN:       cert.Subject.String(),
+		IssuerDN:        cert.Issuer.String(),
+		SignatureAlg:    model.SignatureAlgorithm(cert.SignatureAlgorithm.String()),
+		PublicKeyAlg:    s.mapPublicKeyAlgorithm(req.Algorithm),
+		ValidFrom:       cert.NotBefore,
+		ValidTo:         cert.NotAfter,
+		Status:          model.CertStatusValid,
+		SubjectID:       &subject.ID,
+		IssuedBy:        issuedBy,
 	}
 
 	if keyModel != nil {
@@ -484,14 +484,24 @@ func validatePublicKeyStrength(pubKey interface{}, algorithm string) error {
 		}
 	case *ecdsa.PublicKey:
 		curveBits := key.Curve.Params().BitSize
-		if algorithm == "SM2" && curveBits == 256 {
+		isSM2Curve := sm2.P256() != nil && key.Curve.Params().Name == sm2.P256().Params().Name
+		if algorithm == "SM2" {
+			if !isSM2Curve {
+				return fmt.Errorf("公钥曲线不是SM2标准曲线")
+			}
+			if curveBits < 256 {
+				return fmt.Errorf("SM2曲线强度不足: %d位(最低要求256位)", curveBits)
+			}
 			return nil
+		}
+		if isSM2Curve {
+			return fmt.Errorf("SM2公钥不能用于非SM2算法: %s", algorithm)
 		}
 		if curveBits < 256 {
 			return fmt.Errorf("ECDSA曲线强度不足: %d位(最低要求256位)", curveBits)
 		}
 	default:
-		return fmt.Errorf("无法识别的公钥类型")
+		return fmt.Errorf("无法识别的公钥类型: %T", pubKey)
 	}
 	return nil
 }

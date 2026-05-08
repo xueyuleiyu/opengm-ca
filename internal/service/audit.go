@@ -91,7 +91,10 @@ func (s *AuditService) Log(ctx context.Context, eventType model.EventType, sever
 	select {
 	case s.logQueue <- auditLog:
 	default:
-		log.Warn().Str("actor", actor).Str("action", action).Msg("审计日志队列已满，丢弃日志")
+		// 队列满时同步直写数据库，绝不丢弃审计日志
+		if err := s.repo.Create(ctx, auditLog); err != nil {
+			log.Error().Err(err).Str("actor", actor).Str("action", action).Msg("审计日志队列已满且同步写入失败")
+		}
 	}
 }
 
