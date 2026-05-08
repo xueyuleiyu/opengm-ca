@@ -1,0 +1,51 @@
+# openGM-CA systemd服务配置
+# 安装路径: /etc/systemd/system/opengm-ca.service
+
+[Unit]
+Description=openGM-CA Certificate Authority Service
+Documentation=https://github.com/opengm-ca/opengm-ca
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/opengm-ca/ca-server -config /opt/opengm-ca/configs/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+StartLimitInterval=60s
+StartLimitBurst=3
+
+# 工作目录
+WorkingDirectory=/opt/opengm-ca
+
+# 环境变量文件（包含 CA_MASTER_KEY 等敏感配置）
+EnvironmentFile=/opt/opengm-ca/.env
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ReadWritePaths=/opt/opengm-ca /tmp
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 日志输出到journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=opengm-ca
+
+[Install]
+WantedBy=multi-user.target

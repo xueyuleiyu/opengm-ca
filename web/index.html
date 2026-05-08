@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>openGM-CA 证书管理中心</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;color:#333;min-height:100vh}
+.hidden{display:none!important}
+.login-container{display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#1a73e8 0%,#0d47a1 100%)}
+.login-box{background:white;padding:40px;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,0.2);width:100%;max-width:400px}
+.login-box h1{text-align:center;margin-bottom:8px;color:#1a73e8;font-size:24px}
+.login-box .subtitle{text-align:center;color:#666;margin-bottom:30px;font-size:14px}
+.form-group{margin-bottom:20px}
+.form-group label{display:block;margin-bottom:6px;font-size:14px;font-weight:500}
+.form-group input,.form-group select{width:100%;padding:12px;border:1px solid #ddd;border-radius:6px;font-size:14px}
+.form-group input:focus{outline:none;border-color:#1a73e8}
+.btn{width:100%;padding:12px;border:none;border-radius:6px;font-size:15px;font-weight:500;cursor:pointer;transition:all .2s}
+.btn-primary{background:#1a73e8;color:white}
+.btn-primary:hover{background:#1557b0}
+.btn-secondary{background:#e8eaed;color:#333}
+.btn-secondary:hover{background:#dadce0}
+.btn-danger{background:#ea4335;color:white}
+.btn-danger:hover{background:#c5221f}
+.btn-success{background:#34a853;color:white}
+.btn-success:hover{background:#2e7d32}
+.alert{padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:13px;display:none}
+.alert-error{background:#fce8e8;color:#c5221f;border:1px solid #f5c6cb}
+.alert-success{background:#e6f4ea;color:#137333;border:1px solid #c3e6cb}
+.app-container{display:flex;min-height:100vh}
+.sidebar{width:220px;background:#1a237e;color:white;padding:20px 0;flex-shrink:0;overflow-y:auto}
+.sidebar .logo{padding:0 20px 20px;font-size:18px;font-weight:bold;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:10px}
+.sidebar .logo small{display:block;font-size:11px;font-weight:normal;color:rgba(255,255,255,0.6);margin-top:4px}
+.nav-item{padding:12px 20px;cursor:pointer;transition:background .2s;font-size:14px;display:flex;align-items:center;gap:10px}
+.nav-item:hover{background:rgba(255,255,255,0.08)}
+.nav-item.active{background:rgba(255,255,255,0.15);border-left:3px solid #4fc3f7}
+.nav-item .icon{width:18px;height:18px;opacity:.8;display:inline-flex;align-items:center;justify-content:center;font-size:16px}
+.nav-divider{border-top:1px solid rgba(255,255,255,0.1);margin:8px 16px}
+.main-content{flex:1;padding:24px 32px;overflow-y:auto}
+.top-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #e0e0e0}
+.top-bar h2{font-size:20px;color:#1a237e}
+.user-info{display:flex;align-items:center;gap:12px;font-size:14px}
+.user-info .role{background:#e3f2fd;color:#1565c0;padding:4px 10px;border-radius:12px;font-size:12px}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;margin-bottom:24px}
+.card{background:white;border-radius:10px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
+.card .card-title{font-size:13px;color:#666;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+.card .card-value{font-size:32px;font-weight:600;color:#1a237e}
+.card .card-sub{font-size:12px;color:#999;margin-top:4px}
+.panel{background:white;border-radius:10px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,0.08);margin-bottom:20px}
+.panel-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}
+.panel-header h3{font-size:16px;color:#333}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #eee}
+th{background:#f8f9fa;font-weight:600;color:#555;font-size:12px;text-transform:uppercase}
+tr:hover{background:#f8f9fa}
+.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:500}
+.badge-root{background:#e8eaf6;color:#1a237e}
+.badge-inter{background:#e3f2fd;color:#1565c0}
+.badge-valid{background:#e6f4ea;color:#137333}
+.badge-revoked{background:#fce8e8;color:#c5221f}
+.badge-expired{background:#fef3e8;color:#b06000}
+.badge-sys{background:#e8eaf6;color:#1a237e}
+.badge-sec{background:#fce8e8;color:#c5221f}
+.badge-audit{background:#e6f4ea;color:#137333}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.actions .btn{width:auto;padding:10px 24px}
+.loading{text-align:center;padding:40px;color:#999}
+.empty{text-align:center;padding:40px;color:#999}
+.cert-pem{background:#f5f5f5;padding:12px;border-radius:6px;font-family:"Courier New",monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;border:1px solid #e0e0e0}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:100}
+.modal-overlay.active{display:flex}
+.modal{background:white;border-radius:10px;padding:24px;width:90%;max-width:600px;max-height:80vh;overflow-y:auto}
+.modal h3{margin-bottom:16px}
+.modal-close{float:right;font-size:20px;cursor:pointer;color:#999}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;margin-right:4px}
+.tag-sm2{background:#e8eaf6;color:#1a237e}
+.page-section{display:none}
+.page-section.active{display:block}
+.nav-item.disabled{opacity:.4;cursor:not-allowed}
+.nav-item.disabled:hover{background:none}
+.action-btns{display:flex;gap:6px}
+.action-btns .btn{padding:4px 10px;font-size:12px;width:auto}
+.filter-bar{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.filter-bar input,.filter-bar select{padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.status-dot.ok{background:#34a853}
+.status-dot.warn{background:#fbbc04}
+.status-dot.err{background:#ea4335}
+</style>
+</head>
+<body>
+
+<!-- Login Page -->
+<div id="loginPage" class="login-container">
+<div class="login-box">
+<h1>openGM-CA</h1>
+<div class="subtitle">国密证书认证中心管理系统</div>
+<div id="loginAlert" class="alert"></div>
+<div class="form-group"><label>用户名</label><input type="text" id="username" placeholder="请输入用户名"></div>
+<div class="form-group"><label>密码</label><input type="password" id="password" placeholder="请输入密码"></div>
+<button class="btn btn-primary" onclick="doLogin()">登 录</button>
+</div>
+</div>
+
+<!-- App -->
+<div id="appPage" class="app-container hidden">
+<div class="sidebar">
+<div class="logo">openGM-CA<small>国密证书管理中心</small></div>
+<div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')"><span class="icon">&#9638;</span>仪表盘</div>
+<div class="nav-item" data-page="caChain" onclick="showPage('caChain')"><span class="icon">&#128274;</span>CA 证书链</div>
+<div class="nav-item" data-page="certificates" onclick="showPage('certificates')"><span class="icon">&#128441;</span>证书管理</div>
+<div class="nav-item" data-page="enroll" onclick="showPage('enroll')"><span class="icon">+</span>申请证书</div>
+<div class="nav-item" data-page="audit" onclick="showPage('audit')"><span class="icon">&#128196;</span>审计日志</div>
+<div class="nav-divider"></div>
+<div class="nav-item sec-admin-only hidden" data-page="operators" onclick="showPage('operators')"><span class="icon">&#128100;</span>操作员管理</div>
+<div class="nav-item sec-admin-only hidden" data-page="hsm" onclick="showPage('hsm')"><span class="icon">&#128273;</span>HSM 管理</div>
+<div class="nav-item sys-admin-only hidden" data-page="config" onclick="showPage('config')"><span class="icon">&#9881;</span>系统配置</div>
+<div class="nav-divider"></div>
+<div class="nav-item" data-page="profile" onclick="showPage('profile')"><span class="icon">&#128100;</span>个人中心</div>
+<div class="nav-item" onclick="doLogout()"><span class="icon">&#8592;</span>退出登录</div>
+</div>
+
+<div class="main-content">
+<div class="top-bar">
+<h2 id="pageTitle">仪表盘</h2>
+<div class="user-info">
+<span id="userName">admin</span>
+<span class="role" id="userRole">SUPER_ADMIN</span>
+</div>
+</div>
+
+<!-- Dashboard -->
+<div id="page-dashboard" class="page-section active">
+<div class="card-grid">
+<div class="card"><div class="card-title">系统状态</div><div class="card-value" id="sysStatus">健康</div><div class="card-sub" id="sysVersion">版本 1.0.0</div></div>
+<div class="card"><div class="card-title">CA 初始化</div><div class="card-value" id="caStatus">已初始化</div><div class="card-sub">根CA + 3个中间CA</div></div>
+<div class="card"><div class="card-title">有效证书</div><div class="card-value" id="certCount">0</div><div class="card-sub">张活跃证书</div></div>
+<div class="card"><div class="card-title">已吊销</div><div class="card-value" id="revokedCount">0</div><div class="card-sub">需关注</div></div>
+</div>
+<div class="panel">
+<div class="panel-header"><h3>CA 证书链概览</h3></div>
+<table><thead><tr><th>ID</th><th>CA 名称</th><th>类型</th><th>算法</th><th>有效期至</th></tr></thead>
+<tbody id="caChainSummary"></tbody></table>
+</div>
+<div class="panel">
+<div class="panel-header"><h3>HSM 状态</h3></div>
+<div id="hsmStatusDashboard"><div class="loading">加载中...</div></div>
+</div>
+</div>
+
+<!-- CA Chain -->
+<div id="page-caChain" class="page-section">
+<div class="panel">
+<div class="panel-header"><h3>CA 证书链详情</h3></div>
+<table><thead><tr><th>ID</th><th>CA 名称</th><th>类型</th><th>算法</th><th>序列号</th><th>有效期至</th></tr></thead>
+<tbody id="caChainTable"></tbody></table>
+</div>
+<div class="panel">
+<div class="panel-header"><h3>根 CA 证书 (PEM)</h3></div>
+<div id="rootCertPem" class="cert-pem">加载中...</div>
+</div>
+</div>
+
+<!-- Certificates -->
+<div id="page-certificates" class="page-section">
+<div class="panel">
+<div class="panel-header">
+<h3>证书列表</h3>
+<div class="filter-bar">
+<select id="certFilterStatus"><option value="">全部状态</option><option value="VALID">有效</option><option value="REVOKED">已吊销</option><option value="EXPIRED">已过期</option></select>
+<input type="text" id="certFilterCN" placeholder="搜索 CN...">
+<button class="btn btn-secondary" onclick="loadCertificates()">刷新</button>
+</div>
+</div>
+<div id="certListContent"><div class="empty">暂无证书数据</div></div>
+</div>
+</div>
+
+<!-- Enroll -->
+<div id="page-enroll" class="page-section">
+<div class="panel">
+<div class="panel-header"><h3>申请新证书</h3></div>
+<div id="enrollAlert" class="alert"></div>
+<div class="form-row">
+<div class="form-group"><label>证书类型 *</label><select id="enrollType"><option value="SSL">SSL (HTTPS/TLS)</option><option value="AUTH">AUTH (身份认证)</option><option value="VPN_SIGN">VPN 签名证书</option><option value="VPN_ENC">VPN 加密证书</option></select></div>
+<div class="form-group"><label>密钥来源 *</label><select id="enrollKeySource" onchange="toggleKeySource()"><option value="local">本地生成密钥对</option><option value="csr">导入外部CSR (PKCS#10)</option></select></div>
+</div>
+<div id="csrInputGroup" style="display:none;">
+<div class="form-group"><label>CSR PEM 内容 *</label><textarea id="enrollCSR" rows="8" placeholder="-----BEGIN CERTIFICATE REQUEST-----&#10;MIIBkTCB+w...&#10;-----END CERTIFICATE REQUEST-----"></textarea></div>
+</div>
+<div id="localKeyGroup">
+<div class="form-row">
+<div class="form-group"><label>密钥算法 *</label><select id="enrollAlg"><option value="SM2">SM2 (国密)</option><option value="RSA2048">RSA 2048</option><option value="RSA4096">RSA 4096</option><option value="EC256">EC P-256</option><option value="EC384">EC P-384</option></select></div>
+<div class="form-group"><label>有效期 (天) *</label><input type="number" id="enrollDays" value="365" min="1" max="3650"></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>通用名称 (CN) *</label><input type="text" id="enrollCN" placeholder="www.example.com"></div>
+<div class="form-group"><label>组织 (O) *</label><input type="text" id="enrollOrg" placeholder="Example Corp"></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>国家 (C) *</label><input type="text" id="enrollCountry" value="CN" maxlength="2"></div>
+<div class="form-group"><label>组织单元 (OU)</label><input type="text" id="enrollOU" placeholder="IT Department"></div>
+</div>
+<div class="form-group"><label>DNS 别名 (每行一个)</label><textarea id="enrollSANs" rows="3" placeholder="www.example.com&#10;example.com"></textarea></div>
+<div class="form-group"><label><input type="checkbox" id="enrollExportable"> 允许私钥导出（申请后可通过前端导出明文私钥）</label></div>
+</div>
+<div class="actions">
+<button class="btn btn-primary" onclick="doEnroll()">提交申请</button>
+<button class="btn btn-secondary" onclick="resetEnroll()">重置</button>
+</div>
+</div>
+</div>
+
+<!-- Audit -->
+<div id="page-audit" class="page-section">
+<div class="panel">
+<div class="panel-header"><h3>审计日志</h3><button class="btn btn-secondary" onclick="loadAudit()">刷新</button></div>
+<div id="auditContent"><div class="empty">暂无审计日志</div></div>
+</div>
+</div>
+
+<!-- Operators (三员管理) -->
+<div id="page-operators" class="page-section">
+<div class="panel">
+<div class="panel-header">
+<h3>操作员管理（三员分立）</h3>
+<button class="btn btn-primary" onclick="showModal('createOperatorModal')">+ 创建操作员</button>
+</div>
+<div id="operatorsContent"><div class="loading">加载中...</div></div>
+</div>
+<div class="panel" style="background:#fff8e1;border-left:4px solid #f9a825">
+<h4 style="margin-bottom:10px;color:#b06000">&#9432; 三员管理说明</h4>
+<p style="font-size:13px;color:#666;line-height:1.6">
+<b>系统管理员(SYS_ADMIN)</b>：负责系统配置、CA策略、证书策略管理<br>
+<b>安全保密管理员(SEC_ADMIN)</b>：负责用户管理、权限分配、密钥管理、HSM管理<br>
+<b>安全审计员(AUDITOR)</b>：仅可查看审计日志，不可执行管理操作（只读）<br>
+<small>注：三个角色权限相互分离、相互制约，符合等保2.0要求。</small>
+</p>
+</div>
+</div>
+
+<!-- HSM -->
+<div id="page-hsm" class="page-section">
+<div class="card-grid">
+<div class="card"><div class="card-title">HSM 类型</div><div class="card-value" style="font-size:20px" id="hsmType">SoftHSM</div><div class="card-sub">软件密码模块</div></div>
+<div class="card"><div class="card-title">密钥数量</div><div class="card-value" id="hsmKeyCount">0</div><div class="card-sub">个密钥句柄</div></div>
+<div class="card"><div class="card-title">存储路径</div><div class="card-value" style="font-size:14px;word-break:break-all" id="hsmPath">./data/hsm</div></div>
+</div>
+<div class="panel">
+<div class="panel-header">
+<h3>HSM 密钥列表</h3>
+<button class="btn btn-primary" onclick="showModal('generateKeyModal')">+ 生成密钥</button>
+</div>
+<div id="hsmKeysContent"><div class="loading">加载中...</div></div>
+</div>
+</div>
+
+<!-- System Config -->
+<div id="page-config" class="page-section">
+<div class="panel">
+<div class="panel-header"><h3>系统配置</h3></div>
+<div id="configContent">
+<div class="form-row">
+<div class="form-group"><label>服务端口</label><input type="text" value="8443" readonly></div>
+<div class="form-group"><label>数据库驱动</label><input type="text" value="opengauss" readonly></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>根CA算法</label><input type="text" value="SM2" readonly></div>
+<div class="form-group"><label>根CA有效期</label><input type="text" value="20年" readonly></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>JWT有效期</label><input type="text" value="1小时" readonly></div>
+<div class="form-group"><label>审计保留天数</label><input type="text" value="2555天 (7年)" readonly></div>
+</div>
+<p style="color:#999;font-size:12px;margin-top:12px">配置项修改需编辑 configs/config.yaml 后重启服务</p>
+</div>
+</div>
+</div>
+
+<!-- Profile -->
+<div id="page-profile" class="page-section">
+<div class="panel">
+<div class="panel-header"><h3>个人中心</h3></div>
+<div class="form-row">
+<div class="form-group"><label>用户名</label><input type="text" id="profileUsername" readonly></div>
+<div class="form-group"><label>角色</label><input type="text" id="profileRole" readonly></div>
+</div>
+<div class="form-group"><label>真实姓名</label><input type="text" id="profileRealName" readonly></div>
+<div class="form-group"><label>邮箱</label><input type="text" id="profileEmail" readonly></div>
+</div>
+<div class="panel">
+<div class="panel-header"><h3>修改密码</h3></div>
+<div id="profileAlert" class="alert"></div>
+<div class="form-group"><label>旧密码</label><input type="password" id="profileOldPwd"></div>
+<div class="form-group"><label>新密码</label><input type="password" id="profileNewPwd" placeholder="至少8位"></div>
+<div class="form-group"><label>确认新密码</label><input type="password" id="profileConfirmPwd"></div>
+<div class="actions">
+<button class="btn btn-primary" onclick="doChangePassword()">修改密码</button>
+</div>
+</div>
+</div>
+
+</div>
+</div>
+
+<!-- Modal: Create Operator -->
+<div class="modal-overlay" id="createOperatorModal">
+<div class="modal">
+<span class="modal-close" onclick="closeModal('createOperatorModal')">&times;</span>
+<h3>创建操作员</h3>
+<div id="createOpAlert" class="alert"></div>
+<div class="form-row">
+<div class="form-group"><label>用户名 *</label><input type="text" id="opUsername" placeholder="sysadmin"></div>
+<div class="form-group"><label>密码 *</label><input type="password" id="opPassword" placeholder="至少8位"></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>真实姓名 *</label><input type="text" id="opRealName" placeholder="张三"></div>
+<div class="form-group"><label>角色 *</label>
+<select id="opRole">
+<option value="SYS_ADMIN">系统管理员</option>
+<option value="SEC_ADMIN">安全保密管理员</option>
+<option value="AUDITOR">安全审计员</option>
+</select>
+</div>
+</div>
+<div class="form-group"><label>邮箱 *</label><input type="text" id="opEmail" placeholder="admin@example.com"></div>
+<div class="form-group"><label>手机号</label><input type="text" id="opPhone" placeholder="13800138000"></div>
+<div class="actions">
+<button class="btn btn-primary" onclick="doCreateOperator()">创建</button>
+<button class="btn btn-secondary" onclick="closeModal('createOperatorModal')">取消</button>
+</div>
+</div>
+</div>
+
+<!-- Modal: Generate Key -->
+<div class="modal-overlay" id="generateKeyModal">
+<div class="modal">
+<span class="modal-close" onclick="closeModal('generateKeyModal')">&times;</span>
+<h3>HSM 生成密钥</h3>
+<div id="genKeyAlert" class="alert"></div>
+<div class="form-row">
+<div class="form-group"><label>算法 *</label>
+<select id="hsmAlg">
+<option value="SM2">SM2 (国密)</option>
+<option value="RSA2048">RSA 2048</option>
+<option value="RSA4096">RSA 4096</option>
+<option value="EC256">EC P-256</option>
+<option value="EC384">EC P-384</option>
+</select>
+</div>
+<div class="form-group"><label>密钥类型 *</label>
+<select id="hsmKeyType">
+<option value="SIGN">签名密钥</option>
+<option value="ENC">加密密钥</option>
+<option value="CA">CA密钥</option>
+</select>
+</div>
+</div>
+<div class="actions">
+<button class="btn btn-primary" onclick="doGenerateKey()">生成</button>
+<button class="btn btn-secondary" onclick="closeModal('generateKeyModal')">取消</button>
+</div>
+</div>
+</div>
+
+<!-- Modal: Result -->
+<div class="modal-overlay" id="resultModal">
+<div class="modal">
+<span class="modal-close" onclick="closeModal('resultModal')">&times;</span>
+<h3>证书申请成功</h3>
+<div id="modalContent"></div>
+</div>
+</div>
+
+<script>
+const API_BASE='';
+let token=localStorage.getItem('ca_token')||'';
+let user=JSON.parse(localStorage.getItem('ca_user')||'{}');
+
+if(token){showApp();loadDashboard();}
+
+function showAlert(id,msg,type){
+const el=document.getElementById(id);
+el.textContent=msg;
+el.className='alert alert-'+type;
+el.style.display=msg?'block':'none';
+}
+
+async function api(method,path,body){
+const opts={method,headers:{'Content-Type':'application/json'}};
+if(token)opts.headers['Authorization']='Bearer '+token;
+if(body)opts.body=JSON.stringify(body);
+try{
+const res=await fetch(API_BASE+path,opts);
+if(res.status===401){localStorage.removeItem('ca_token');localStorage.removeItem('ca_user');location.reload();return{code:'UNAUTHORIZED'};}
+if(res.status===403)return{code:'FORBIDDEN',message:'权限不足，无法执行此操作'};
+return await res.json();
+}catch(e){return{code:'NETWORK_ERROR',message:e.message};}
+}
+
+async function doLogin(){
+const u=document.getElementById('username').value;
+const p=document.getElementById('password').value;
+showAlert('loginAlert','','error');
+const data=await api('POST','/api/v1/auth/login',{username:u,password:p});
+if(data.code!=='OK'){showAlert('loginAlert',data.message||'登录失败','error');return;}
+token=data.data.access_token;user=data.data.operator;
+localStorage.setItem('ca_token',token);localStorage.setItem('ca_user',JSON.stringify(user));
+showApp();loadDashboard();
+}
+
+function showApp(){
+document.getElementById('loginPage').classList.add('hidden');
+document.getElementById('appPage').classList.remove('hidden');
+document.getElementById('userName').textContent=user.username||'admin';
+document.getElementById('userRole').textContent=(user.role||'').replace('_','-');
+// 权限控制导航显示
+const role=user.role||'';
+if(role==='SEC_ADMIN'||role==='SUPER_ADMIN'){
+document.querySelectorAll('.sec-admin-only').forEach(el=>el.classList.remove('hidden'));
+}
+if(role==='SYS_ADMIN'||role==='SUPER_ADMIN'){
+document.querySelectorAll('.sys-admin-only').forEach(el=>el.classList.remove('hidden'));
+}
+}
+
+function doLogout(){
+token='';user={};
+localStorage.removeItem('ca_token');localStorage.removeItem('ca_user');
+document.getElementById('appPage').classList.add('hidden');
+document.getElementById('loginPage').classList.remove('hidden');
+}
+
+function showPage(name){
+document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
+const nav=document.querySelector('.nav-item[data-page="'+name+'"]');
+if(nav)nav.classList.add('active');
+const titles={dashboard:'仪表盘',caChain:'CA 证书链',certificates:'证书管理',enroll:'申请证书',audit:'审计日志',operators:'操作员管理',hsm:'HSM 管理',config:'系统配置',profile:'个人中心'};
+document.getElementById('pageTitle').textContent=titles[name]||name;
+document.querySelectorAll('.page-section').forEach(p=>p.classList.remove('active'));
+const page=document.getElementById('page-'+name);
+if(page)page.classList.add('active');
+if(name==='dashboard')loadDashboard();
+if(name==='caChain')loadCaChain();
+if(name==='certificates')loadCertificates();
+if(name==='audit')loadAudit();
+if(name==='operators')loadOperators();
+if(name==='hsm')loadHSM();
+if(name==='profile')loadProfile();
+}
+
+async function loadDashboard(){
+try{
+const health=await api('GET','/health');
+if(health.data){
+document.getElementById('sysStatus').textContent=health.data.status==='healthy'?'健康':'异常';
+document.getElementById('sysVersion').textContent='版本 '+(health.data.version||'1.0.0');
+document.getElementById('caStatus').textContent=health.data.ca_initialized?'已初始化':'未初始化';
+const s=health.data.stats||{};
+document.getElementById('certCount').textContent=s.active_certificates||0;
+document.getElementById('revokedCount').textContent=s.revoked_certificates||0;
+}
+renderCaSummary([
+{id:1,ca_name:'openGM Root CA',ca_type:'ROOT',algorithm:'SM2',valid_to:'2046-04-18'},
+{id:2,ca_name:'SSL-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',valid_to:'2046-04-18'},
+{id:3,ca_name:'AUTH-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',valid_to:'2046-04-18'},
+{id:4,ca_name:'VPN-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',valid_to:'2046-04-18'}
+]);
+loadHSMStatusDashboard();
+}catch(e){console.error(e);}
+}
+
+async function loadHSMStatusDashboard(){
+const el=document.getElementById('hsmStatusDashboard');
+const data=await api('GET','/api/v1/hsm/status');
+if(data.code==='OK'&&data.data){
+el.innerHTML='<p><span class="status-dot ok"></span><b>'+data.data.type+'</b> &nbsp; 密钥数量: <b>'+data.data.key_count+'</b> &nbsp; 存储: '+data.data.storage_path+'</p>';
+}else{el.innerHTML='<p><span class="status-dot warn"></span>HSM 状态获取失败</p>';}
+}
+
+function renderCaSummary(list){
+document.getElementById('caChainSummary').innerHTML=list.map(item=>`<tr><td>${item.id}</td><td>${item.ca_name}</td><td><span class="badge ${item.ca_type==='ROOT'?'badge-root':'badge-inter'}">${item.ca_type==='ROOT'?'根CA':'中间CA'}</span></td><td><span class="tag tag-sm2">${item.algorithm}</span></td><td>${item.valid_to?item.valid_to.substring(0,10):'-'}</td></tr>`).join('');
+}
+
+async function loadCaChain(){
+renderCaSummary([
+{id:1,ca_name:'openGM Root CA',ca_type:'ROOT',algorithm:'SM2',serial_number:'1',valid_to:'2046-04-18'},
+{id:2,ca_name:'SSL-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',serial_number:'ica-SSL-CA-1',valid_to:'2046-04-18'},
+{id:3,ca_name:'AUTH-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',serial_number:'ica-AUTH-CA-1',valid_to:'2046-04-18'},
+{id:4,ca_name:'VPN-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',serial_number:'ica-VPN-CA-1',valid_to:'2046-04-18'}
+]);
+document.getElementById('rootCertPem').textContent='证书 PEM 内容需从数据库导出查看';
+}
+
+const certCache={};
+
+async function loadCertificates(){
+const el=document.getElementById('certListContent');
+el.innerHTML='<div class="loading">加载中...</div>';
+const data=await api('GET','/api/v1/certificates?page=1&page_size=20');
+if(data.code!=='OK'||!data.data||!data.data.items||!data.data.items.length){
+el.innerHTML='<div class="empty">暂无证书，请前往"申请证书"页面创建</div>';return;
+}
+const list=data.data.items;
+list.forEach(c=>certCache[c.id]=c);
+el.innerHTML='<table><thead><tr><th>ID</th><th>类型</th><th>主题</th><th>序列号</th><th>状态</th><th>有效期至</th><th>操作</th></tr></thead><tbody>'+list.map(c=>`<tr><td>${c.id}</td><td>${c.cert_type}</td><td>${c.subject_dn}</td><td>${c.serial_number}</td><td><span class="badge badge-${c.status?c.status.toLowerCase():'valid'}">${c.status}</span></td><td>${c.valid_to?c.valid_to.substring(0,10):'-'}</td><td class="action-btns"><button class="btn btn-secondary" onclick="downloadCertPEM(${c.id})">导出PEM</button>${c.key_id?`<button class="btn btn-warning" onclick="exportPrivateKey('${c.key_id}')">导出私钥</button>`:''}<button class="btn btn-danger" onclick="revokeCert(${c.id})">吊销</button></td></tr>`).join('')+'</tbody></table>';
+}
+
+function downloadCertPEM(certId){
+const c=certCache[certId];
+if(!c||!c.cert_pem)return;
+const cn=(c.subject_dn||'').split(',')[0].replace('CN=','').trim()||'cert';
+const blob=new Blob([c.cert_pem],{type:'text/plain'});
+const url=URL.createObjectURL(blob);
+const a=document.createElement('a');
+a.href=url;
+a.download=`${cn}-${certId}.pem`;
+a.click();
+URL.revokeObjectURL(url);
+}
+
+async function exportPrivateKey(keyId){
+if(!confirm('⚠️ 明文私钥导出可能导致证书体系泄露，确认继续？'))return;
+const data=await api('POST',`/api/v1/keys/${keyId}/export`,{reason:'管理员导出',export_format:'PEM'});
+if(data.code==='OK'){
+const blob=new Blob([data.data.private_key_pem],{type:'text/plain'});
+const url=URL.createObjectURL(blob);
+const a=document.createElement('a');
+a.href=url;
+a.download=`private-key-${keyId}.pem`;
+a.click();
+URL.revokeObjectURL(url);
+}else{
+alert(data.message||'导出失败');
+}
+}
+
+async function revokeCert(id){
+if(!confirm('确定要吊销该证书吗？此操作不可逆！'))return;
+const data=await api('POST','/api/v1/certificates/'+id+'/revoke',{reason:'管理员吊销',reason_code:0});
+if(data.code==='OK'){alert('证书已吊销');loadCertificates();}else{alert(data.message||'吊销失败');}
+}
+
+function toggleKeySource(){
+const source=document.getElementById('enrollKeySource').value;
+document.getElementById('csrInputGroup').style.display=source==='csr'?'block':'none';
+document.getElementById('localKeyGroup').style.display=source==='local'?'block':'none';
+}
+
+async function doEnroll(){
+showAlert('enrollAlert','','error');
+const source=document.getElementById('enrollKeySource').value;
+const body={
+cert_type:document.getElementById('enrollType').value,
+validity_days:parseInt(document.getElementById('enrollDays').value)||365
+};
+
+if(source==='csr'){
+const csr=document.getElementById('enrollCSR').value.trim();
+if(!csr){showAlert('enrollAlert','请粘贴CSR PEM内容','error');return;}
+body.csr_pem=csr;
+body.gen_key_locally=false;
+}else{
+body.algorithm=document.getElementById('enrollAlg').value;
+body.gen_key_locally=true;
+body.exportable=document.getElementById('enrollExportable').checked;
+body.subject={
+common_name:document.getElementById('enrollCN').value,
+organization:document.getElementById('enrollOrg').value,
+country:document.getElementById('enrollCountry').value,
+organizational_unit:document.getElementById('enrollOU').value||undefined
+};
+body.extensions={
+subject_alt_names:document.getElementById('enrollSANs').value.split('\n').map(s=>s.trim()).filter(s=>s).map(s=>({type:'dns',value:s}))
+};
+if(!body.subject.common_name||!body.subject.organization||!body.subject.country){
+showAlert('enrollAlert','请填写必填项','error');return;
+}
+}
+
+const data=await api('POST','/api/v1/certificates/enroll',body);
+if(data.code!=='OK'){showAlert('enrollAlert',data.message||'申请失败','error');return;}
+showAlert('enrollAlert','证书申请成功！','success');
+showModalContent('证书申请成功',data.data);
+resetEnroll();
+}
+
+function resetEnroll(){
+document.getElementById('enrollCN').value='';
+document.getElementById('enrollOrg').value='';
+document.getElementById('enrollOU').value='';
+document.getElementById('enrollSANs').value='';
+document.getElementById('enrollDays').value='365';
+document.getElementById('enrollCSR').value='';
+document.getElementById('enrollKeySource').value='local';
+toggleKeySource();
+}
+
+function showModalContent(title,content){
+let html='';
+if(typeof content==='object'){
+for(const[k,v]of Object.entries(content)){
+if(k==='cert_pem'||k==='private_key_pem'){html+=`<p><b>${k}:</b></p><div class="cert-pem">${v||''}</div>`;}
+else{html+=`<p><b>${k}:</b> ${v||'-'}</p>`;}
+}
+}else{html=`<p>${content}</p>`;}
+document.querySelector('#resultModal h3').textContent=title;
+document.getElementById('modalContent').innerHTML=html;
+document.getElementById('resultModal').classList.add('active');
+}
+
+async function loadAudit(){
+const el=document.getElementById('auditContent');
+el.innerHTML='<div class="loading">加载中...</div>';
+const data=await api('GET','/api/v1/audit/logs?page=1&page_size=20');
+if(data.code!=='OK'||!data.data||!data.data.length){el.innerHTML='<div class="empty">暂无审计日志</div>';return;}
+el.innerHTML='<table><thead><tr><th>时间</th><th>事件</th><th>操作人</th><th>对象</th><th>结果</th></tr></thead><tbody>'+data.data.map(l=>`<tr><td>${l.created_at?l.created_at.substring(0,19).replace('T',' '):'-'}</td><td>${l.event_type}</td><td>${l.actor}</td><td>${l.target_type} / ${l.target_id}</td><td>${l.result}</td></tr>`).join('')+'</tbody></table>';
+}
+
+// ---- Operators (三员管理) ----
+async function loadOperators(){
+const el=document.getElementById('operatorsContent');
+el.innerHTML='<div class="loading">加载中...</div>';
+const data=await api('GET','/api/v1/operators');
+if(data.code!=='OK'){el.innerHTML='<div class="empty">'+data.message+'</div>';return;}
+const list=data.data||[];
+const roleMap={SYS_ADMIN:'系统管理员',SEC_ADMIN:'安全保密管理员',AUDITOR:'安全审计员',SUPER_ADMIN:'超级管理员'};
+const roleClass={SYS_ADMIN:'badge-sys',SEC_ADMIN:'badge-sec',AUDITOR:'badge-audit',SUPER_ADMIN:'badge-root'};
+el.innerHTML='<table><thead><tr><th>ID</th><th>用户名</th><th>真实姓名</th><th>角色</th><th>邮箱</th><th>状态</th><th>操作</th></tr></thead><tbody>'+list.map(op=>`<tr><td>${op.id}</td><td>${op.username}</td><td>${op.real_name}</td><td><span class="badge ${roleClass[op.role]||''}">${roleMap[op.role]||op.role}</span></td><td>${op.email}</td><td>${op.is_active?'<span style="color:#34a853">启用</span>':'<span style="color:#ea4335">禁用</span>'}</td><td class="action-btns">${op.role!=='SUPER_ADMIN'?`<button class="btn btn-secondary" onclick="toggleOperator(${op.id},${!op.is_active})">${op.is_active?'禁用':'启用'}</button><button class="btn btn-danger" onclick="deleteOperator(${op.id})">删除</button>`:'<span style="color:#999;font-size:12px">内置</span>'}</td></tr>`).join('')+'</tbody></table>';
+}
+
+async function doCreateOperator(){
+showAlert('createOpAlert','','error');
+const body={
+username:document.getElementById('opUsername').value,
+password:document.getElementById('opPassword').value,
+real_name:document.getElementById('opRealName').value,
+email:document.getElementById('opEmail').value,
+phone:document.getElementById('opPhone').value,
+role:document.getElementById('opRole').value
+};
+if(!body.username||!body.password||!body.real_name||!body.email){showAlert('createOpAlert','请填写必填项','error');return;}
+const data=await api('POST','/api/v1/operators',body);
+if(data.code!=='OK'){showAlert('createOpAlert',data.message||'创建失败','error');return;}
+closeModal('createOperatorModal');
+loadOperators();
+}
+
+async function deleteOperator(id){
+if(!confirm('确定删除该操作员吗？'))return;
+const data=await api('DELETE','/api/v1/operators/'+id);
+if(data.code==='OK'){loadOperators();}else{alert(data.message||'删除失败');}
+}
+
+async function toggleOperator(id,isActive){
+const data=await api('POST','/api/v1/operators/'+id+'/status',{is_active:isActive});
+if(data.code==='OK'){loadOperators();}else{alert(data.message||'操作失败');}
+}
+
+// ---- HSM ----
+async function loadHSM(){
+const status=await api('GET','/api/v1/hsm/status');
+if(status.code==='OK'&&status.data){
+document.getElementById('hsmType').textContent=status.data.type||'SoftHSM';
+document.getElementById('hsmKeyCount').textContent=status.data.key_count||0;
+document.getElementById('hsmPath').textContent=status.data.storage_path||'./data/hsm';
+}
+const keys=await api('GET','/api/v1/hsm/keys');
+const el=document.getElementById('hsmKeysContent');
+if(keys.code!=='OK'||!keys.data||!keys.data.length){el.innerHTML='<div class="empty">暂无密钥</div>';return;}
+el.innerHTML='<table><thead><tr><th>句柄</th><th>算法</th><th>类型</th><th>创建时间</th><th>操作</th></tr></thead><tbody>'+keys.data.map(k=>`<tr><td>${k.handle.substring(0,8)}...</td><td><span class="tag tag-sm2">${k.algorithm}</span></td><td>${k.key_type}</td><td>${new Date(k.created_at).toLocaleString()}</td><td class="action-btns"><button class="btn btn-danger" onclick="deleteHsmKey('${k.handle}')">删除</button></td></tr>`).join('')+'</tbody></table>';
+}
+
+async function doGenerateKey(){
+showAlert('genKeyAlert','','error');
+const body={algorithm:document.getElementById('hsmAlg').value,key_type:document.getElementById('hsmKeyType').value};
+const data=await api('POST','/api/v1/hsm/keys',body);
+if(data.code!=='OK'){showAlert('genKeyAlert',data.message||'生成失败','error');return;}
+closeModal('generateKeyModal');
+loadHSM();
+}
+
+async function deleteHsmKey(handle){
+if(!confirm('确定删除该密钥吗？'))return;
+const data=await api('DELETE','/api/v1/hsm/keys/'+handle);
+if(data.code==='OK'){loadHSM();}else{alert(data.message||'删除失败');}
+}
+
+// ---- Profile ----
+function loadProfile(){
+document.getElementById('profileUsername').value=user.username||'';
+document.getElementById('profileRole').value=(user.role||'').replace('_','-');
+document.getElementById('profileRealName').value=user.real_name||'';
+document.getElementById('profileEmail').value=user.email||'';
+}
+
+async function doChangePassword(){
+showAlert('profileAlert','','error');
+const oldPwd=document.getElementById('profileOldPwd').value;
+const newPwd=document.getElementById('profileNewPwd').value;
+const confirmPwd=document.getElementById('profileConfirmPwd').value;
+if(!newPwd||newPwd.length<8){showAlert('profileAlert','新密码至少8位','error');return;}
+if(newPwd!==confirmPwd){showAlert('profileAlert','两次输入的新密码不一致','error');return;}
+const uid=user.id||1;
+const data=await api('POST','/api/v1/operators/'+uid+'/password',{old_password:oldPwd,new_password:newPwd});
+if(data.code!=='OK'){showAlert('profileAlert',data.message||'修改失败','error');return;}
+showAlert('profileAlert','密码修改成功，请重新登录','success');
+setTimeout(()=>doLogout(),2000);
+}
+
+// ---- Modal utils ----
+function showModal(id){document.getElementById(id).classList.add('active');}
+function closeModal(id){document.getElementById(id).classList.remove('active');}
+
+// Enter key on login
+document.getElementById('password').addEventListener('keypress',function(e){if(e.key==='Enter')doLogin();});
+</script>
+</body>
+</html>

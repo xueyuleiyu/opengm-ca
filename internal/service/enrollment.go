@@ -1,0 +1,430 @@
+package service
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
+	"encoding/pem"
+	"fmt"
+	"math/big"
+	"time"
+
+	smx509 "github.com/emmansun/gmsm/smx509"
+	"github.com/emmansun/gmsm/sm2"
+	"github.com/google/uuid"
+	"github.com/opengm-ca/opengm-ca/internal/config"
+	"github.com/opengm-ca/opengm-ca/internal/core"
+	opengmcrypto "github.com/opengm-ca/opengm-ca/internal/crypto"
+	"github.com/opengm-ca/opengm-ca/internal/metrics"
+	"github.com/opengm-ca/opengm-ca/internal/model"
+	"github.com/opengm-ca/opengm-ca/internal/repository"
+	"github.com/rs/zerolog/log"
+)
+
+// EnrollmentService 证书申请服务
+type EnrollmentService struct {
+	cfg           *config.Config
+	caEngine      *core.CAEngine
+	keyGen        *opengmcrypto.KeyGenerator
+	keyStore      *opengmcrypto.KeyStore
+	certRepo      *repository.CertificateRepository
+	keyRepo       *repository.KeyRepository
+	subjectRepo   *repository.SubjectRepository
+	caRepo        *repository.CAChainRepository
+	auditSvc      *AuditService
+}
+
+// NewEnrollmentService 创建证书申请服务
+func NewEnrollmentService(
+	cfg *config.Config,
+	caEngine *core.CAEngine,
+	keyStore *opengmcrypto.KeyStore,
+	certRepo *repository.CertificateRepository,
+	keyRepo *repository.KeyRepository,
+	subjectRepo *repository.SubjectRepository,
+	caRepo *repository.CAChainRepository,
+	auditSvc *AuditService,
+) *EnrollmentService {
+	return &EnrollmentService{
+		cfg:         cfg,
+		caEngine:    caEngine,
+		keyGen:      opengmcrypto.NewKeyGenerator(),
+		keyStore:    keyStore,
+		certRepo:    certRepo,
+		keyRepo:     keyRepo,
+		subjectRepo: subjectRepo,
+		caRepo:      caRepo,
+		auditSvc:    auditSvc,
+	}
+}
+
+// EnrollCertificate 证书申请入口
+func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.CertificateRequest, issuedBy, actorIP string) (*model.CertificateResponse, error) {
+	log.Info().Str("cert_type", req.CertType).Str("subject", req.Subject.CommonName).Msg("证书申请")
+
+	// 预处理CSR（如果提供）
+	var csrPubKey interface{}
+	if req.CSRPEM != "" {
+		pubKey, csrSubject, err := s.parseCSR(req.CSRPEM)
+		if err != nil {
+			return nil, fmt.Errorf("解析CSR失败: %w", err)
+		}
+		csrPubKey = pubKey
+		// 如果请求中没有指定主题，使用CSR中的主题
+		if req.Subject.CommonName == "" {
+			req.Subject = *csrSubject
+		}
+	}
+
+	// 1. 参数校验
+	if err := s.validateRequest(req); err != nil {
+		return nil, fmt.Errorf("请求参数无效: %w", err)
+	}
+
+	// 2. 获取或创建Subject
+	subject, err := s.subjectRepo.GetOrCreate(ctx, &req.Subject)
+	if err != nil {
+		return nil, fmt.Errorf("创建证书主体失败: %w", err)
+	}
+
+	// 3. 确定使用哪个CA
+	caName := s.selectCA(req.CertType)
+	ca, err := s.caRepo.GetByName(ctx, caName)
+	if err != nil {
+		return nil, fmt.Errorf("获取CA失败: %w", err)
+	}
+
+	// 4. 处理密钥
+	var privKey interface{}
+	var pubKey interface{}
+	var keyModel *model.CertKey
+
+	if req.CSRPEM != "" {
+		// 使用CSR中的公钥
+		pubKey = csrPubKey
+	} else if req.GenKeyLocally {
+		// 本地生成密钥对
+		privKey, pubKey, err = s.keyGen.GenerateKeyPair(req.Algorithm)
+		if err != nil {
+			return nil, fmt.Errorf("生成密钥对失败: %w", err)
+		}
+
+		// 创建密钥记录
+		keyModel, err = s.createKeyRecord(ctx, subject.ID, req, privKey, pubKey, issuedBy)
+		if err != nil {
+			return nil, fmt.Errorf("保存密钥记录失败: %w", err)
+		}
+	} else {
+		return nil, fmt.Errorf("必须提供CSR或选择本地生成密钥")
+	}
+
+	// 5. 构建证书模板并签发
+	template, err := s.buildCertTemplate(req, subject, ca)
+	if err != nil {
+		return nil, fmt.Errorf("构建证书模板失败: %w", err)
+	}
+
+	certBytes, err := s.signCertificate(template, pubKey, ca)
+	if err != nil {
+		return nil, fmt.Errorf("签名证书失败: %w", err)
+	}
+
+	// 6. 解析并保存证书 (使用smx509支持SM2)
+	cert, err := smx509.ParseCertificate(certBytes)
+	if err != nil {
+		return nil, fmt.Errorf("解析证书失败: %w", err)
+	}
+
+	certHash := sha256.Sum256(certBytes)
+	certModel := &model.Certificate{
+		CertType:      model.CertType(req.CertType),
+		CAID:          ca.ID,
+		SerialNumber:  fmt.Sprintf("%X", cert.SerialNumber),
+		SerialNumberDec: cert.SerialNumber.String(),
+		CertPEM:       opengmcrypto.PemEncode(certBytes, "CERTIFICATE"),
+		CertHashSHA256: hex.EncodeToString(certHash[:]),
+		SubjectDN:     cert.Subject.String(),
+		IssuerDN:      cert.Issuer.String(),
+		SignatureAlg:  model.SignatureAlgorithm(cert.SignatureAlgorithm.String()),
+		PublicKeyAlg:  s.mapPublicKeyAlgorithm(req.Algorithm),
+		ValidFrom:     cert.NotBefore,
+		ValidTo:       cert.NotAfter,
+		Status:        model.CertStatusValid,
+		SubjectID:     &subject.ID,
+		IssuedBy:      issuedBy,
+	}
+
+	if keyModel != nil {
+		certModel.KeyID = keyModel.KeyID
+	}
+
+	if err := s.certRepo.Create(ctx, certModel); err != nil {
+		return nil, fmt.Errorf("保存证书记录失败: %w", err)
+	}
+
+	// 7. 更新密钥关联的证书ID
+	if keyModel != nil {
+		keyModel.CertID = &certModel.ID
+		// TODO: update key record
+	}
+
+	// 8. Metrics 埋点
+	metrics.IncCertsIssued(req.CertType)
+
+	// 9. 审计日志
+	s.auditSvc.Log(ctx, model.EventCertIssue, model.SeverityInfo, issuedBy, actorIP, "CERTIFICATE", certModel.SerialNumber,
+		fmt.Sprintf("签发%s证书: %s", req.CertType, req.Subject.CommonName), map[string]interface{}{
+			"cert_id":   certModel.ID,
+			"serial":    certModel.SerialNumber,
+			"algorithm": req.Algorithm,
+			"validity":  req.ValidityDays,
+		}, model.ResultSuccess, "")
+
+	// 9. 构建响应
+	resp := &model.CertificateResponse{
+		CertID:       fmt.Sprintf("%d", certModel.ID),
+		SerialNumber: certModel.SerialNumber,
+		CertPEM:      certModel.CertPEM,
+		SubjectDN:    certModel.SubjectDN,
+		IssuerDN:     certModel.IssuerDN,
+		Algorithm:    req.Algorithm,
+		IssuedAt:     certModel.ValidFrom,
+		ExpiresAt:    certModel.ValidTo,
+	}
+
+	if keyModel != nil {
+		resp.KeyID = keyModel.KeyID
+		privKeyPEM, _ := s.encodePrivateKey(privKey, req.Algorithm)
+		if privKeyPEM != "" {
+			resp.PrivateKeyPEM = &privKeyPEM
+		}
+	}
+
+	return resp, nil
+}
+
+// validateRequest 校验证书申请请求
+func (s *EnrollmentService) validateRequest(req *model.CertificateRequest) error {
+	if req.ValidityDays <= 0 || req.ValidityDays > s.cfg.CertPolicy.MaxValidityDays {
+		return fmt.Errorf("有效期必须在1-%d天之间", s.cfg.CertPolicy.MaxValidityDays)
+	}
+
+	// CSR模式下不校验算法（从CSR自动推断）
+	if req.CSRPEM == "" {
+		validAlg := false
+		for _, a := range s.cfg.CertPolicy.AllowedAlgorithms {
+			if a == req.Algorithm {
+				validAlg = true
+				break
+			}
+		}
+		if !validAlg {
+			return fmt.Errorf("不支持的算法: %s", req.Algorithm)
+		}
+	}
+
+	// CSR模式下Subject可以为空（从CSR提取）
+	if req.CSRPEM == "" {
+		if req.Subject.CommonName == "" {
+			return fmt.Errorf("缺少证书主题CommonName")
+		}
+	}
+
+	return nil
+}
+
+// selectCA 根据证书类型选择CA
+func (s *EnrollmentService) selectCA(certType string) string {
+	switch certType {
+	case "SSL":
+		return "SSL-CA"
+	case "AUTH":
+		return "AUTH-CA"
+	case "VPN", "VPN_SIGN", "VPN_ENC":
+		return "VPN-CA"
+	default:
+		return "SSL-CA"
+	}
+}
+
+// createKeyRecord 创建密钥记录
+func (s *EnrollmentService) createKeyRecord(ctx context.Context, subjectID int, req *model.CertificateRequest, privKey, pubKey interface{}, createdBy string) (*model.CertKey, error) {
+	pubKeyPEM, err := opengmcrypto.EncodePublicKeyToPEM(pubKey)
+	if err != nil {
+		return nil, fmt.Errorf("编码公钥失败: %w", err)
+	}
+
+	// 计算公钥哈希
+	pubKeyHash := sha256.Sum256([]byte(pubKeyPEM))
+	keyModel := &model.CertKey{
+		KeyID:         uuid.New().String(),
+		KeyType:       model.KeyTypeSignature,
+		Algorithm:     model.KeyAlgorithm(req.Algorithm),
+		PublicKeyPEM:  pubKeyPEM,
+		PublicKeyHash: hex.EncodeToString(pubKeyHash[:]),
+		StorageType:   model.KeyStorageSoftware,
+		SubjectID:     &subjectID,
+		Exportable:    req.Exportable,
+		MaxExports:    s.cfg.KeyManagement.Export.MaxExportsPerKey,
+		CreatedBy:     createdBy,
+	}
+
+	// 加密存储私钥
+	privKeyPEM, err := s.encodePrivateKey(privKey, req.Algorithm)
+	if err != nil {
+		return nil, fmt.Errorf("编码私钥失败: %w", err)
+	}
+
+	if err := s.keyStore.StoreKey(keyModel, []byte(privKeyPEM)); err != nil {
+		return nil, fmt.Errorf("加密存储私钥失败: %w", err)
+	}
+
+	if err := s.keyRepo.Create(ctx, keyModel); err != nil {
+		return nil, fmt.Errorf("保存密钥记录失败: %w", err)
+	}
+
+	return keyModel, nil
+}
+
+// encodePrivateKey 编码私钥为PEM
+func (s *EnrollmentService) encodePrivateKey(privKey interface{}, algorithm string) (string, error) {
+	switch algorithm {
+	case "RSA2048", "RSA4096":
+		importRSA := privKey.(*rsa.PrivateKey)
+		return opengmcrypto.EncodePrivateKeyToPKCS1(importRSA)
+	case "EC256", "EC384":
+		importEC := privKey.(*ecdsa.PrivateKey)
+		return opengmcrypto.EncodeECPrivateKey(importEC)
+	case "SM2":
+		importSM2 := privKey.(*sm2.PrivateKey)
+		return opengmcrypto.EncodeSM2PrivateKey(importSM2)
+	default:
+		return opengmcrypto.EncodePrivateKeyToPKCS8(privKey)
+	}
+}
+
+// parseCSR 解析标准PKCS#10 CSR，返回公钥和主题信息
+func (s *EnrollmentService) parseCSR(csrPEM string) (interface{}, *model.SubjectInfo, error) {
+	block, _ := pem.Decode([]byte(csrPEM))
+	if block == nil {
+		return nil, nil, fmt.Errorf("无效的CSR PEM格式")
+	}
+
+	// 尝试 smx509（支持SM2国密CSR）
+	csrSM2, err := smx509.ParseCertificateRequest(block.Bytes)
+	if err == nil {
+		subject := extractSubjectFromCSR(csrSM2.Subject, csrSM2.DNSNames)
+		return csrSM2.PublicKey, subject, nil
+	}
+
+	// 回退到标准x509
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("解析CSR失败: %w", err)
+	}
+
+	subject := extractSubjectFromCSR(csr.Subject, csr.DNSNames)
+	return csr.PublicKey, subject, nil
+}
+
+func extractSubjectFromCSR(subj pkix.Name, dnsNames []string) *model.SubjectInfo {
+	subject := &model.SubjectInfo{
+		CommonName:         subj.CommonName,
+		Organization:       firstOrEmpty(subj.Organization),
+		OrganizationalUnit: firstOrEmpty(subj.OrganizationalUnit),
+		Country:            firstOrEmpty(subj.Country),
+		State:              firstOrEmpty(subj.Province),
+		Locality:           firstOrEmpty(subj.Locality),
+	}
+	return subject
+}
+
+// firstOrEmpty 返回字符串切片的第一个元素，或空字符串
+func firstOrEmpty(s []string) string {
+	if len(s) > 0 {
+		return s[0]
+	}
+	return ""
+}
+
+// buildCertTemplate 构建证书模板
+func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, subject *model.Subject, ca *model.CAChain) (*x509.Certificate, error) {
+	serialNumber := new(big.Int)
+	serialNumber.SetBytes([]byte(uuid.New().String()))
+
+	template := &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			CommonName:         subject.CommonName,
+			Organization:       []string{subject.Organization},
+			OrganizationalUnit: []string{subject.OrganizationalUnit},
+			Country:            []string{subject.Country},
+			Province:           []string{subject.State},
+			Locality:           []string{subject.Locality},
+		},
+		NotBefore: time.Now().Add(-1 * time.Hour),
+		NotAfter:  time.Now().AddDate(0, 0, req.ValidityDays),
+	}
+
+	// 根据证书类型应用模板配置（支持YAML驱动）
+	if tmplCfg, ok := s.cfg.CertTemplates[req.CertType]; ok {
+		if err := core.ApplyCertTemplate(template, tmplCfg); err != nil {
+			return nil, fmt.Errorf("应用证书模板失败: %w", err)
+		}
+	} else {
+		// 默认模板
+		template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment
+	}
+
+	// 添加SAN扩展
+	if len(req.Extensions.SubjectAltNames) > 0 {
+		var dnsNames []string
+		var ipAddresses []string
+		for _, san := range req.Extensions.SubjectAltNames {
+			switch san.Type {
+			case "dns":
+				dnsNames = append(dnsNames, san.Value)
+			case "ip":
+				ipAddresses = append(ipAddresses, san.Value)
+			}
+		}
+		template.DNSNames = dnsNames
+		// TODO: 添加IP地址
+		_ = ipAddresses
+	}
+
+	return template, nil
+}
+
+// signCertificate 使用CA签名证书
+func (s *EnrollmentService) signCertificate(template *x509.Certificate, pubKey interface{}, ca *model.CAChain) ([]byte, error) {
+	caInstance, err := s.caEngine.GetCA(ca.CAName)
+	if err != nil {
+		return nil, fmt.Errorf("获取CA实例失败(%s): %w", ca.CAName, err)
+	}
+
+	certBytes, err := smx509.CreateCertificate(rand.Reader, template, caInstance.Cert, pubKey, caInstance.Signer)
+	if err != nil {
+		return nil, fmt.Errorf("签名证书失败: %w", err)
+	}
+	return certBytes, nil
+}
+
+// mapPublicKeyAlgorithm 映射公钥算法
+func (s *EnrollmentService) mapPublicKeyAlgorithm(algorithm string) model.PublicKeyAlgorithm {
+	switch algorithm {
+	case "SM2":
+		return model.PubKeySM2
+	case "RSA2048", "RSA4096":
+		return model.PubKeyRSA
+	case "EC256", "EC384":
+		return model.PubKeyEC
+	default:
+		return model.PubKeySM2
+	}
+}
