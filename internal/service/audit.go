@@ -28,7 +28,8 @@ func NewAuditService(repo *repository.AuditRepository, enabled, hashChain bool) 
 		hashChain: hashChain,
 		logQueue:  make(chan *model.AuditLog, 1000),
 	}
-	workerCount := 4
+	// 使用单 worker 串行写入，确保审计日志哈希链严格连续，避免并发导致的 prev_hash 分叉
+	workerCount := 1
 	for i := 0; i < workerCount; i++ {
 		s.wg.Add(1)
 		go s.worker()

@@ -5,8 +5,8 @@ server:
   port: 8443
   tls:
     enabled: true             # 生产环境必须设为 true，使用 HTTPS
-    cert_file: "/opt/opengm-ca/certs/server.crt"
-    key_file: "/opt/opengm-ca/certs/server.key"
+    cert_file: "data/certs/server.crt"
+    key_file: "data/certs/server.key"
     # 国密TLS双栈配置（未来扩展）
     gm_tls:
       enabled: false
@@ -134,8 +134,8 @@ ocsp:
   enabled: true
   responder_url: "http://ocsp.example.com"
   response_validity_hours: 24
-  responder_cert_file: ""   # 正式OCSP Responder证书路径（PEM），留空则使用临时自签名证书
-  responder_key_file: ""    # 正式OCSP Responder私钥路径（PEM），留空则使用临时自签名证书
+  responder_cert_file: "data/certs/ocsp_responder.crt"   # 正式OCSP Responder证书路径（PEM）
+  responder_key_file: "data/certs/ocsp_responder.key"    # 正式OCSP Responder私钥路径（PEM）
   
 # 审计日志
 audit:
