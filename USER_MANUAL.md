@@ -115,7 +115,7 @@ curl -s http://192.168.24.132:8443/api/v1/system/status \
 | **认证** | `/api/v1/auth/login` | POST | 公开 | 用户登录 |
 | **认证** | `/api/v1/auth/refresh` | POST | 公开 | 刷新 Token |
 | **系统** | `/api/v1/system/status` | GET | 需登录 | 系统状态 |
-| **证书** | `/api/v1/certificates` | GET | 需登录 | 证书列表 |
+| **证书** | `/api/v1/certificates` | GET | 需登录 | 证书列表 (page_size ≤ 100) |
 | **证书** | `/api/v1/certificates/:id` | GET | 需登录 | 证书详情 |
 | **证书** | `/api/v1/certificates/enroll` | POST | 需登录 | 申请证书 |
 | **证书** | `/api/v1/certificates/:id/revoke` | POST | CERT_REVOKE | 吊销证书 |
@@ -124,8 +124,9 @@ curl -s http://192.168.24.132:8443/api/v1/system/status \
 | **密钥** | `/api/v1/keys/:id/export` | POST | KEY_EXPORT | 导出私钥 |
 | **审计** | `/api/v1/audit/logs` | GET | AUDIT_READ | 审计日志 |
 | **审计** | `/api/v1/audit/verify` | GET | AUDIT_VERIFY | 验证哈希链 |
-| **CRL** | `/api/v1/crl/:ca_name` | GET | 公开 | 下载 CRL |
-| **OCSP** | `/api/v1/ocsp` | POST | 公开 | OCSP 查询 |
+| **CRL** | `/api/v1/crl/:ca_name` | GET | 公开 | 下载 CRL (DER 格式) |
+| **OCSP** | `/api/v1/ocsp` | POST | 公开 | OCSP 查询 (支持 DER/JSON) |
+| **Metrics** | `/api/v1/metrics` | GET | 需登录 | Prometheus 指标 |
 
 ### 4.2 健康检查
 
@@ -201,6 +202,9 @@ curl -s "http://192.168.24.132:8443/api/v1/certificates?status=VALID&page=1&page
   -H "Authorization: Bearer ${TOKEN}"
 ```
 
+**参数限制:**
+- `page_size`: 1 ~ 100，超出范围自动截断为 20
+
 ### 4.5 吊销证书
 
 ```bash
@@ -227,6 +231,7 @@ curl -X POST "http://192.168.24.132:8443/api/v1/certificates/123/revoke" \
 ### 4.6 导出私钥
 
 > ⚠️ **安全警告**: 私钥导出是高危操作，每次导出都会记录审计日志！
+> 私钥导出需要审批配置关闭且验证当前密码，返回的私钥使用用户提供的密码加密。
 
 ```bash
 curl -X POST "http://192.168.24.132:8443/api/v1/keys/key-uuid/export" \
@@ -235,11 +240,37 @@ curl -X POST "http://192.168.24.132:8443/api/v1/keys/key-uuid/export" \
   -d '{
     "reason": "业务系统部署",
     "export_format": "PKCS8",
-    "password": "optional-encryption-password"
+    "current_password": "<当前登录密码>",
+    "password": "<导出加密密码>"
   }'
 ```
 
-### 4.7 查询审计日志
+### 4.7 OCSP 查询
+
+**JSON 请求:**
+```bash
+curl -X POST "http://192.168.24.132:8443/api/v1/ocsp" \
+  -H "Content-Type: application/json" \
+  -d '{"serial_number": "123456...", "ca_name": "SSL-CA"}'
+```
+
+**DER 请求 (RFC 6960):**
+```bash
+curl -X POST "http://192.168.24.132:8443/api/v1/ocsp" \
+  -H "Content-Type: application/ocsp-request" \
+  -H "Accept: application/ocsp-response" \
+  --data-binary @ocsp-request.der \
+  -o ocsp-response.der
+```
+
+### 4.8 CRL 下载
+
+```bash
+# 下载 DER 编码的 CRL
+curl -o crl.der "http://192.168.24.132:8443/api/v1/crl/SSL-CA"
+```
+
+### 4.9 查询审计日志
 
 ```bash
 curl -s "http://192.168.24.132:8443/api/v1/audit/logs?event_type=CERT_ISSUE&start_time=2026-04-01T00:00:00Z&page=1&page_size=20" \
@@ -332,10 +363,10 @@ curl -s "http://192.168.24.132:8443/api/v1/audit/logs?event_type=CERT_ISSUE&star
 
 | 角色 | 权限范围 |
 |------|----------|
-| `SUPER_ADMIN` | 全部权限：CA 管理、系统配置、用户管理 |
-| `ADMIN` | 证书签发/吊销/续期、审计查看 |
-| `AUDITOR` | 仅审计日志查询和哈希链验证 |
-| `OPERATOR` | 证书查询、个人密钥管理 |
+| `SUPER_ADMIN` | 全部权限（不建议常规使用） |
+| `SYS_ADMIN` | 系统配置、CA 策略、证书策略 |
+| `SEC_ADMIN` | 用户管理、权限分配、密钥管理、HSM 管理 |
+| `AUDITOR` | 仅审计日志查询和哈希链验证（只读） |
 
 ### 7.2 权限代码
 
@@ -343,11 +374,16 @@ curl -s "http://192.168.24.132:8443/api/v1/audit/logs?event_type=CERT_ISSUE&star
 |----------|------|
 | `CERT_ISSUE` | 签发证书 |
 | `CERT_REVOKE` | 吊销证书 |
+| `CERT_RENEW` | 续期证书 |
+| `CERT_READ` | 查看证书 |
+| `KEY_MANAGE` | 管理密钥 |
 | `KEY_EXPORT` | 导出私钥 |
 | `AUDIT_READ` | 查看审计日志 |
 | `AUDIT_VERIFY` | 验证审计哈希链 |
 | `CA_MANAGE` | 管理 CA 配置 |
 | `USER_MANAGE` | 管理操作员 |
+| `HSM_MANAGE` | 管理 HSM |
+| `SYSTEM_CONFIG` | 系统配置 |
 
 ---
 
@@ -404,13 +440,16 @@ cd /opt/opengm-ca
 
 ## 9. 安全最佳实践
 
-1. **修改默认密码**: 首次登录后立即修改 `admin` 密码
-2. **启用 HTTPS**: 配置 TLS 证书，关闭 HTTP 明文传输
+1. **修改默认密码**: 首次登录后立即修改所有管理员密码
+2. **启用 HTTPS**: 配置 TLS 证书，关闭 HTTP 明文传输（服务不再自动生成自签名证书）
 3. **设置主密钥**: `export CA_MASTER_KEY=$(openssl rand -hex 32)` 并重启服务
-4. **定期轮换 JWT Secret**: 修改配置文件中 `auth.jwt.secret`
-5. **数据库备份**: 每日备份 openGauss 数据目录
-6. **审计监控**: 定期查看 `/api/v1/audit/logs`，关注 `SEVERITY_CRITICAL` 级别事件
-7. **私钥导出审批**: 生产环境务必开启 `key_management.export.requires_approval: true`
+4. **设置 JWT Secret**: `export CA_JWT_SECRET=$(openssl rand -hex 32)`，长度≥32
+5. **定期轮换密钥**: 建议每年轮换中间CA密钥和JWT Secret
+6. **数据库备份**: 每日备份 openGauss 数据目录
+7. **审计监控**: 定期查看 `/api/v1/audit/logs`，关注 `SEVERITY_CRITICAL` 级别事件
+8. **私钥导出审批**: 生产环境务必开启 `key_management.export.requires_approval: true`
+9. **密码复杂度**: 所有账号密码必须≥8位，包含大小写字母、数字和特殊字符
+10. **MFA 启用**: 为管理员账号启用多因素认证
 
 ---
 

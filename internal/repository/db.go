@@ -20,7 +20,7 @@ type DB struct {
 
 // NewDB 创建数据库连接
 func NewDB(cfg *config.DatabaseConfig) (*DB, error) {
-	sqldb, err := sql.Open("opengauss", cfg.DSN())
+	sqldb, err := sql.Open("opengauss", cfg.RawDSN())
 	if err != nil {
 		return nil, fmt.Errorf("连接数据库失败: %w", err)
 	}

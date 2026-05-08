@@ -3,6 +3,7 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -77,7 +78,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// 验证密码
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(req.Password)); err != nil {
-		_ = h.operatorRepo.IncrementLoginFail(c.Request.Context(), op.ID)
+		if incErr := h.operatorRepo.IncrementLoginFail(c.Request.Context(), op.ID); incErr != nil {
+			log.Warn().Err(incErr).Int("operator_id", op.ID).Msg("增加登录失败计数失败")
+		}
 		if h.auditSvc != nil {
 			h.auditSvc.Log(c.Request.Context(), model.EventAdminLogin, model.SeverityWarn, req.Username, c.ClientIP(), "OPERATOR", strconv.Itoa(op.ID),
 				"登录失败: 密码错误", map[string]interface{}{"username": req.Username}, model.ResultFailed, "密码错误")
@@ -200,8 +203,15 @@ func (h *AuthHandler) InitDefaultAdmins(c *gin.Context) {
 		if a.skip {
 			continue
 		}
+		if err := validatePasswordStrength(a.password); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "WEAK_PASSWORD", "message": "管理员 " + a.username + " 密码强度不足: " + err.Error()})
+			return
+		}
 		// 检查用户名是否已存在
-		existing, _ := h.operatorRepo.GetByUsername(ctx, a.username)
+		existing, err := h.operatorRepo.GetByUsername(ctx, a.username)
+		if err != nil {
+			log.Warn().Err(err).Str("username", a.username).Msg("查询用户名失败")
+		}
 		if existing != nil {
 			continue
 		}
@@ -232,6 +242,30 @@ func (h *AuthHandler) InitDefaultAdmins(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": "OK", "message": "三员管理员初始化成功", "data": gin.H{"created": created}})
+}
+
+// validatePasswordStrength 校验密码强度
+func validatePasswordStrength(password string) error {
+	if len(password) < 8 {
+		return fmt.Errorf("密码长度至少8位")
+	}
+	hasUpper, hasLower, hasDigit, hasSpecial := false, false, false, false
+	for _, ch := range password {
+		switch {
+		case ch >= 'A' && ch <= 'Z':
+			hasUpper = true
+		case ch >= 'a' && ch <= 'z':
+			hasLower = true
+		case ch >= '0' && ch <= '9':
+			hasDigit = true
+		default:
+			hasSpecial = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasDigit || !hasSpecial {
+		return fmt.Errorf("密码必须包含大小写字母、数字和特殊字符")
+	}
+	return nil
 }
 
 // getEnvOrRandomPassword 从环境变量读取密码，未设置则生成随机密码

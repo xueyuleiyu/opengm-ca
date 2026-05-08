@@ -39,6 +39,11 @@ func (h *OperatorHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if err := validatePasswordStrength(req.Password); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "WEAK_PASSWORD", "message": err.Error()})
+		return
+	}
+
 	if !model.IsValidRole(req.Role) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_PARAMETER", "message": "无效的角色类型"})
 		return

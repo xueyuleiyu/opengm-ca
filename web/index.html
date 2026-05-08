@@ -376,8 +376,8 @@ tr:hover{background:#f8f9fa}
 
 <script>
 const API_BASE='';
-let token=localStorage.getItem('ca_token')||'';
-let user=JSON.parse(localStorage.getItem('ca_user')||'{}');
+let token=sessionStorage.getItem('ca_token')||'';
+let user=JSON.parse(sessionStorage.getItem('ca_user')||'{}');
 
 if(token){showApp();loadDashboard();}
 
@@ -394,7 +394,7 @@ if(token)opts.headers['Authorization']='Bearer '+token;
 if(body)opts.body=JSON.stringify(body);
 try{
 const res=await fetch(API_BASE+path,opts);
-if(res.status===401){localStorage.removeItem('ca_token');localStorage.removeItem('ca_user');location.reload();return{code:'UNAUTHORIZED'};}
+if(res.status===401){sessionStorage.removeItem('ca_token');sessionStorage.removeItem('ca_user');location.reload();return{code:'UNAUTHORIZED'};}
 if(res.status===403)return{code:'FORBIDDEN',message:'权限不足，无法执行此操作'};
 return await res.json();
 }catch(e){return{code:'NETWORK_ERROR',message:e.message};}
@@ -407,7 +407,7 @@ showAlert('loginAlert','','error');
 const data=await api('POST','/api/v1/auth/login',{username:u,password:p});
 if(data.code!=='OK'){showAlert('loginAlert',data.message||'登录失败','error');return;}
 token=data.data.access_token;user=data.data.operator;
-localStorage.setItem('ca_token',token);localStorage.setItem('ca_user',JSON.stringify(user));
+sessionStorage.setItem('ca_token',token);sessionStorage.setItem('ca_user',JSON.stringify(user));
 showApp();loadDashboard();
 }
 
@@ -428,7 +428,7 @@ document.querySelectorAll('.sys-admin-only').forEach(el=>el.classList.remove('hi
 
 function doLogout(){
 token='';user={};
-localStorage.removeItem('ca_token');localStorage.removeItem('ca_user');
+sessionStorage.removeItem('ca_token');sessionStorage.removeItem('ca_user');
 document.getElementById('appPage').classList.add('hidden');
 document.getElementById('loginPage').classList.remove('hidden');
 }

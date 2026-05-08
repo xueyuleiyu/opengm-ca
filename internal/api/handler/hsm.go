@@ -7,6 +7,7 @@ import (
 	"github.com/opengm-ca/opengm-ca/internal/hsm"
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/opengm-ca/opengm-ca/internal/service"
+	"github.com/rs/zerolog/log"
 )
 
 // HSMHandler HSM管理Handler
@@ -58,7 +59,9 @@ func (h *HSMHandler) GenerateKey(c *gin.Context) {
 		return
 	}
 
-	_ = pubKey
+	if pubKey == nil {
+		log.Warn().Str("handle", handle).Msg("HSM生成公钥为空")
+	}
 	if h.auditSvc != nil {
 		h.auditSvc.Log(c.Request.Context(), model.EventKeyGenerate, model.SeverityInfo, c.GetString("username"), c.ClientIP(), "HSM_KEY", handle,
 			"HSM生成密钥", map[string]interface{}{"algorithm": req.Algorithm, "key_type": req.KeyType}, model.ResultSuccess, "")

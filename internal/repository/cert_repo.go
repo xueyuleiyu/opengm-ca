@@ -122,7 +122,7 @@ func (r *CertificateRepository) GetExpiringSoon(ctx context.Context, days int) (
 	certs := make([]model.Certificate, 0)
 	err := r.db.NewSelect().Model(&certs).
 		Where("status = ?", model.CertStatusValid).
-		Where("valid_to <= NOW() + INTERVAL '? days'", days).
+		Where("valid_to <= NOW() + INTERVAL '1 day' * ?", days).
 		OrderExpr("valid_to ASC").
 		Scan(ctx)
 	return certs, err

@@ -22,7 +22,7 @@ database:
   user: "ca_admin"
   password: "${DB_PASSWORD}"  # 从环境变量读取，生产环境必须设置
   dbname: "opengm_ca"
-  ssl_mode: "disable"
+  ssl_mode: "prefer"
   pool:
     max_open: 50
     max_idle: 10

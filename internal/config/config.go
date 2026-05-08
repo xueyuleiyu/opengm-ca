@@ -249,6 +249,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.port", 8443)
 	v.SetDefault("database.pool.max_open", 50)
 	v.SetDefault("database.pool.max_idle", 10)
+	v.SetDefault("database.ssl_mode", "prefer")
 	v.SetDefault("cert_policy.default_validity_days", 365)
 	v.SetDefault("crl.update_interval_hours", 24)
 	v.SetDefault("audit.retention_days", 2555)
@@ -288,8 +289,14 @@ func resolveEnvVariables(cfg *Config) error {
 	return nil
 }
 
-// DSN 构建数据库连接字符串
+// DSN 构建脱敏的数据库连接字符串（用于日志，不含密码）
 func (d *DatabaseConfig) DSN() string {
+	return fmt.Sprintf("host=%s port=%d user=%s password=REDACTED dbname=%s sslmode=%s",
+		d.Host, d.Port, d.User, d.DBName, d.SSLMode)
+}
+
+// RawDSN 构建真实的数据库连接字符串（用于实际连接）
+func (d *DatabaseConfig) RawDSN() string {
 	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		d.Host, d.Port, d.User, d.Password, d.DBName, d.SSLMode)
 }

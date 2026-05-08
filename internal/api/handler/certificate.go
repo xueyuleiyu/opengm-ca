@@ -65,6 +65,12 @@ func (h *CertificateHandler) List(c *gin.Context) {
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
 
 	certs, total, err := h.mgmtSvc.ListCertificates(c.Request.Context(), filters, page, pageSize)
 	if err != nil {

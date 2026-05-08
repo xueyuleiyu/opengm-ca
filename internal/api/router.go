@@ -123,13 +123,13 @@ func (r *Router) Register(engine *gin.Engine) {
 				hsmGroup.POST("/keys", middleware.RequirePermission("HSM_MANAGE"), r.hsmHandler.GenerateKey)
 				hsmGroup.DELETE("/keys/:handle", middleware.RequirePermission("HSM_MANAGE"), r.hsmHandler.DeleteKey)
 			}
+
+			// Prometheus Metrics（需要认证）
+			authorized.GET("/metrics", metrics.MetricsHandler())
 		}
 
 		// CRL/OCSP（公开访问）
 		v1.GET("/crl/:ca_name", r.crlHandler.GenerateCRL)
 		v1.POST("/ocsp", r.ocspHandler.HandleRequest)
-
-		// Prometheus Metrics（公开访问）
-		v1.GET("/metrics", metrics.MetricsHandler())
 	}
 }

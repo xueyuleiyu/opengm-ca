@@ -207,8 +207,10 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 
 	if keyModel != nil {
 		resp.KeyID = keyModel.KeyID
-		privKeyPEM, _ := s.encodePrivateKey(privKey, req.Algorithm)
-		if privKeyPEM != "" {
+		privKeyPEM, err := s.encodePrivateKey(privKey, req.Algorithm)
+		if err != nil {
+			log.Warn().Err(err).Msg("编码私钥失败，响应中不包含私钥")
+		} else if privKeyPEM != "" {
 			resp.PrivateKeyPEM = &privKeyPEM
 		}
 	}

@@ -35,7 +35,7 @@ func JWTMiddleware(cfg *config.AuthConfig) gin.HandlerFunc {
 				return nil, jwt.ErrSignatureInvalid
 			}
 			return []byte(cfg.JWT.Secret), nil
-		}, jwt.WithIssuer(cfg.JWT.Issuer))
+		}, jwt.WithIssuer(cfg.JWT.Issuer), jwt.WithValidMethods([]string{"HS256"}))
 
 		if err != nil || !token.Valid {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "Token无效或已过期"})
@@ -46,6 +46,23 @@ func JWTMiddleware(cfg *config.AuthConfig) gin.HandlerFunc {
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "Token解析失败"})
+			c.Abort()
+			return
+		}
+
+		// 显式校验关键 claims
+		if sub, _ := claims.GetSubject(); sub == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "Token缺少主体标识"})
+			c.Abort()
+			return
+		}
+		if exp, _ := claims.GetExpirationTime(); exp == nil || exp.Before(time.Now()) {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "Token已过期"})
+			c.Abort()
+			return
+		}
+		if iat, _ := claims.GetIssuedAt(); iat == nil || iat.After(time.Now()) {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "Token签发时间无效"})
 			c.Abort()
 			return
 		}
@@ -140,6 +157,7 @@ func RateLimitMiddleware(maxRequests int, window time.Duration) gin.HandlerFunc 
 
 		if info.count >= maxRequests {
 			mu.Unlock()
+			c.Header("Retry-After", fmt.Sprintf("%d", int(window.Seconds())))
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"code":    "RATE_LIMITED",
 				"message": "请求过于频繁，请稍后重试",

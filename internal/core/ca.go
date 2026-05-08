@@ -7,7 +7,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/x509"
 
 	smx509 "github.com/emmansun/gmsm/smx509"
@@ -148,10 +148,22 @@ func (e *CAEngine) decryptKeyFile(data []byte, keyEncryptor KeyEncryptor) ([]byt
 		return nil, fmt.Errorf("私钥已加密但无法获取主密钥")
 	}
 
-	ct, _ := base64.StdEncoding.DecodeString(wrapper.Ciphertext)
-	salt, _ := base64.StdEncoding.DecodeString(wrapper.Salt)
-	nonce, _ := base64.StdEncoding.DecodeString(wrapper.Nonce)
-	tag, _ := base64.StdEncoding.DecodeString(wrapper.Tag)
+	ct, err := base64.StdEncoding.DecodeString(wrapper.Ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("解码密文失败: %w", err)
+	}
+	salt, err := base64.StdEncoding.DecodeString(wrapper.Salt)
+	if err != nil {
+		return nil, fmt.Errorf("解码盐值失败: %w", err)
+	}
+	nonce, err := base64.StdEncoding.DecodeString(wrapper.Nonce)
+	if err != nil {
+		return nil, fmt.Errorf("解码nonce失败: %w", err)
+	}
+	tag, err := base64.StdEncoding.DecodeString(wrapper.Tag)
+	if err != nil {
+		return nil, fmt.Errorf("解码tag失败: %w", err)
+	}
 
 	return keyEncryptor.DecryptPrivateKey(ct, salt, nonce, tag)
 }
@@ -587,7 +599,7 @@ func generateSerialNumber() (*big.Int, error) {
 	return serialNumber, nil
 }
 
-// GenerateKeyID 生成主题密钥标识符 (RFC 5280: SHA-1 hash of public key DER)
+// GenerateKeyID 生成主题密钥标识符 (RFC 5280: SHA-256 hash of public key DER, truncated to 20 bytes)
 func GenerateKeyID(pubKey interface{}) []byte {
 	pubDER, err := smx509.MarshalPKIXPublicKey(pubKey)
 	if err != nil {
@@ -596,12 +608,14 @@ func GenerateKeyID(pubKey interface{}) []byte {
 		if err != nil {
 			log.Warn().Err(err).Msg("无法序列化公钥生成SubjectKeyId，使用随机值")
 			randBytes := make([]byte, 20)
-			_, _ = rand.Read(randBytes)
+			if _, err := rand.Read(randBytes); err != nil {
+				log.Warn().Err(err).Msg("读取随机数失败")
+			}
 			return randBytes
 		}
 	}
-	hash := sha1.Sum(pubDER)
-	return hash[:]
+	hash := sha256.Sum256(pubDER)
+	return hash[:20]
 }
 
 // buildCertTemplate 根据请求构建证书模板

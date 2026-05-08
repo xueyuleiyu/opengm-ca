@@ -1,1 +1,8 @@
 ca-server
+build/
+data/
+*.log
+*.key
+*.crt
+*.pem
+.env

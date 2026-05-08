@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"crypto/rand"
+	"crypto/x509/pkix"
+	"encoding/asn1"
+	"math/big"
 	"net/http"
 	"time"
 
@@ -25,7 +29,7 @@ func NewCRLHandler(caEngine *core.CAEngine, certRepo *repository.CertificateRepo
 	return &CRLHandler{caEngine: caEngine, certRepo: certRepo, caRepo: caRepo, auditSvc: auditSvc}
 }
 
-// GenerateCRL 生成并返回CRL
+// GenerateCRL 生成并返回DER编码的CRL (RFC 5280)
 func (h *CRLHandler) GenerateCRL(c *gin.Context) {
 	caName := c.Param("ca_name")
 	if caName == "" {
@@ -42,11 +46,18 @@ func (h *CRLHandler) GenerateCRL(c *gin.Context) {
 		return
 	}
 
+	// 获取CA实例（用于签名CRL）
+	caInstance, err := h.caEngine.GetCA(caName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "CA引擎未加载: " + err.Error()})
+		return
+	}
+
 	// 查询该CA下已吊销的证书
 	filters := map[string]interface{}{
 		"status": string(model.CertStatusRevoked),
 	}
-	revokedCerts, total, err := h.certRepo.List(ctx, filters, 0, 10000)
+	revokedCerts, _, err := h.certRepo.List(ctx, filters, 0, 10000)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "查询吊销证书失败: " + err.Error()})
 		return
@@ -56,55 +67,50 @@ func (h *CRLHandler) GenerateCRL(c *gin.Context) {
 	metrics.IncCRLRequests()
 
 	// 构建CRL条目
-	var entries []crlEntry
+	var revokedEntries []pkix.RevokedCertificate
 	for _, cert := range revokedCerts {
 		if cert.CAID != ca.ID {
 			continue
 		}
-		entry := crlEntry{
-			SerialNumber:   cert.SerialNumber,
-			RevocationTime: cert.RevokedAt,
+		sn := new(big.Int)
+		if _, ok := sn.SetString(cert.SerialNumber, 16); !ok {
+			sn.SetString(cert.SerialNumber, 10)
+		}
+		if sn.Sign() <= 0 {
+			continue
+		}
+		rc := pkix.RevokedCertificate{
+			SerialNumber:   sn,
+			RevocationTime: *cert.RevokedAt,
 		}
 		if cert.RevocationReason != nil {
-			entry.Reason = *cert.RevocationReason
+			reasonBytes, err := asn1.Marshal(asn1.Enumerated(*cert.RevocationReason))
+			if err == nil {
+				rc.Extensions = append(rc.Extensions, pkix.Extension{
+					Id:    asn1.ObjectIdentifier{2, 5, 29, 21},
+					Value: reasonBytes,
+				})
+			}
 		}
-		entries = append(entries, entry)
+		revokedEntries = append(revokedEntries, rc)
 	}
 
-	crl := crlResponse{
-		CAName:         caName,
-		IssuerDN:       ca.SubjectDN,
-		ThisUpdate:     time.Now(),
-		NextUpdate:     time.Now().Add(48 * time.Hour),
-		Version:        2,
-		TotalEntries:   total,
-		CAEntries:      len(entries),
-		RevokedCerts:   entries,
+	thisUpdate := time.Now()
+	nextUpdate := thisUpdate.Add(48 * time.Hour)
+
+	crlBytes, err := caInstance.Cert.CreateCRL(rand.Reader, caInstance.Signer, revokedEntries, thisUpdate, nextUpdate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "CRL_GENERATION_FAILED", "message": "CRL签名生成失败: " + err.Error()})
+		return
 	}
 
 	if h.auditSvc != nil {
 		actor, _ := c.Get("username")
 		actorStr, _ := actor.(string)
 		h.auditSvc.Log(ctx, model.EventCRLGenerate, model.SeverityInfo, actorStr, c.ClientIP(), "CRL", caName,
-			"生成CRL", map[string]interface{}{"ca_name": caName, "entries": len(entries)}, model.ResultSuccess, "")
+			"生成CRL", map[string]interface{}{"ca_name": caName, "entries": len(revokedEntries)}, model.ResultSuccess, "")
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": "OK", "data": crl})
-}
-
-type crlEntry struct {
-	SerialNumber   string     `json:"serial_number"`
-	RevocationTime *time.Time `json:"revocation_time,omitempty"`
-	Reason         int        `json:"reason,omitempty"`
-}
-
-type crlResponse struct {
-	CAName       string     `json:"ca_name"`
-	IssuerDN     string     `json:"issuer_dn"`
-	ThisUpdate   time.Time  `json:"this_update"`
-	NextUpdate   time.Time  `json:"next_update"`
-	Version      int        `json:"version"`
-	TotalEntries int        `json:"total_entries"`
-	CAEntries    int        `json:"ca_entries"`
-	RevokedCerts []crlEntry `json:"revoked_certificates"`
+	c.Header("Content-Type", "application/pkix-crl")
+	c.Data(http.StatusOK, "application/pkix-crl", crlBytes)
 }

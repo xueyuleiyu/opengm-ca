@@ -242,16 +242,18 @@ server:
   host: "0.0.0.0"
   port: 8443
   tls:
-    enabled: false   # 当前使用 HTTP，TLS 证书待配置
+    enabled: false   # 生产环境必须设为 true，使用 HTTPS
+    cert_file: "/opt/opengm-ca/certs/server.crt"
+    key_file: "/opt/opengm-ca/certs/server.key"
 
 database:
   driver: "opengauss"
   host: "localhost"
   port: 5432
   user: "ca_admin"
-  password: "${DB_PASSWORD}"
+  password: "${DB_PASSWORD}"  # 通过环境变量传入
   dbname: "opengm_ca"
-  ssl_mode: "disable"
+  ssl_mode: "prefer"   # 生产环境建议设为 require/verify-ca
 
 ca:
   root_ca:
@@ -288,8 +290,12 @@ auth:
 | 变量名 | 说明 | 当前值 |
 |--------|------|--------|
 | `DB_PASSWORD` | 数据库密码 | **必须设置**，生产环境使用强密码 |
-| `JWT_SECRET` | JWT 签名密钥 | **必须设置**，建议 `openssl rand -hex 32` |
-| `CA_MASTER_KEY` | 私钥加密主密钥 | **未设置**（私钥加密功能不可用） |
+| `JWT_SECRET` | JWT 签名密钥 | **必须设置**，建议 `openssl rand -hex 32`，长度≥32 |
+| `CA_MASTER_KEY` | 私钥加密主密钥 | **必须设置**，建议 `openssl rand -hex 32` |
+| `CA_HSM_PASSWORD` | HSM 密码 | **必须设置** |
+| `CA_DEFAULT_SYS_ADMIN_PASSWORD` | 系统管理员默认密码 | 首次初始化前设置 |
+| `CA_DEFAULT_SEC_ADMIN_PASSWORD` | 安全管理员默认密码 | 首次初始化前设置 |
+| `CA_DEFAULT_AUDIT_ADMIN_PASSWORD` | 审计管理员默认密码 | 首次初始化前设置 |
 
 ---
 
@@ -387,17 +393,18 @@ nohup ./ca-server -config ./configs/config.yaml > /var/log/opengm-ca.log 2>&1 &
 | 问题 | 说明 | 影响 |
 |------|------|------|
 | **主密钥未设置** | `CA_MASTER_KEY` 环境变量未配置 | 私钥加密/导出功能不可用 |
-| **TLS 未启用** | 配置文件 `tls.enabled: false` | 服务使用明文 HTTP |
+| **TLS 未启用** | 配置文件 `tls.enabled: false` | 服务使用明文 HTTP，生产环境必须开启 |
 | **ON CONFLICT 不支持** | openGauss 语法差异 | 系统配置初始化需手动执行 |
-| **SM2 证书解析降级** | `smx509.ParseCertificate` 对中间CA证书解析失败 | 中间CA的 SubjectDN/IssuerDN 使用配置值而非证书实际值 |
-| **私钥未持久化** | CA 初始化生成的私钥未保存到数据库 | 服务重启后 CA 引擎需重新加载（当前未实现完整加载逻辑） |
+| **OCSP Responder 临时证书** | 当前使用自签名 EC P-256 证书签名 OCSP 响应 | 生产环境应使用由 CA 正式签名的 OCSP Responder 证书 |
 
 ---
 
 ## 8. 后续优化建议
 
-1. **启用 TLS**: 生成服务器证书，修改 `configs/config.yaml` 中 `tls.enabled: true`
+1. **启用 TLS**: 准备服务器证书和私钥，修改 `configs/config.yaml` 中 `tls.enabled: true`。注意：服务不再自动生成自签名证书，证书缺失会直接报错。
 2. **配置主密钥**: `export CA_MASTER_KEY=$(openssl rand -hex 32)` 后重启服务
-3. **完善私钥持久化**: 将 CA 私钥加密后存入数据库或 HSM
-4. **系统配置补全**: 手动执行 `system_configs` 表的数据插入
-5. **备份策略**: 定期备份 `/opt/software/openGauss/data/single_node` 和 `/opt/opengm-ca/configs`
+3. **配置 HSM 密码**: `export CA_HSM_PASSWORD=<强密码>`
+4. **配置 JWT Secret**: `export CA_JWT_SECRET=$(openssl rand -hex 32)`
+5. **配置默认管理员密码**: 初始化前设置 `CA_DEFAULT_*_ADMIN_PASSWORD` 环境变量
+6. **系统配置补全**: 手动执行 `system_configs` 表的数据插入
+7. **备份策略**: 定期备份 `/opt/software/openGauss/data/single_node` 和 `/opt/opengm-ca/configs`

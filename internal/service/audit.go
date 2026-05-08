@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/opengm-ca/opengm-ca/internal/model"
@@ -14,14 +15,43 @@ type AuditService struct {
 	repo      *repository.AuditRepository
 	enabled   bool
 	hashChain bool
+	logQueue  chan *model.AuditLog
+	wg        sync.WaitGroup
+	closeOnce sync.Once
 }
 
 // NewAuditService 创建审计日志服务
 func NewAuditService(repo *repository.AuditRepository, enabled, hashChain bool) *AuditService {
-	return &AuditService{
+	s := &AuditService{
 		repo:      repo,
 		enabled:   enabled,
 		hashChain: hashChain,
+		logQueue:  make(chan *model.AuditLog, 1000),
+	}
+	workerCount := 4
+	for i := 0; i < workerCount; i++ {
+		s.wg.Add(1)
+		go s.worker()
+	}
+	return s
+}
+
+// Close 关闭审计服务，等待所有待处理日志写入完成
+func (s *AuditService) Close() {
+	s.closeOnce.Do(func() {
+		close(s.logQueue)
+		s.wg.Wait()
+	})
+}
+
+func (s *AuditService) worker() {
+	defer s.wg.Done()
+	for auditLog := range s.logQueue {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := s.repo.Create(bgCtx, auditLog); err != nil {
+			log.Warn().Err(err).Msg("审计日志写入失败")
+		}
+		cancel()
 	}
 }
 
@@ -32,17 +62,17 @@ func (s *AuditService) Log(ctx context.Context, eventType model.EventType, sever
 	}
 
 	auditLog := &model.AuditLog{
-		EventTime:    time.Now(),
-		EventType:    eventType,
-		Severity:     severity,
-		Actor:        actor,
-		ActorIP:      actorIP,
-		TargetType:   targetType,
-		TargetID:     targetID,
-		Action:       action,
-		Detail:       detail,
-		Result:       result,
-		ErrorMsg:     errorMsg,
+		EventTime:  time.Now(),
+		EventType:  eventType,
+		Severity:   severity,
+		Actor:      actor,
+		ActorIP:    actorIP,
+		TargetType: targetType,
+		TargetID:   targetID,
+		Action:     action,
+		Detail:     detail,
+		Result:     result,
+		ErrorMsg:   errorMsg,
 	}
 
 	// 构建记录内容
@@ -57,15 +87,12 @@ func (s *AuditService) Log(ctx context.Context, eventType model.EventType, sever
 		auditLog.CurrHash = auditLog.ComputeHash("")
 	}
 
-	// 异步写入（避免阻塞主流程）
-	go func() {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := s.repo.Create(bgCtx, auditLog); err != nil {
-			// 审计日志写入失败不应影响主流程，但应记录到系统日志
-			log.Warn().Err(err).Msg("审计日志写入失败")
-		}
-	}()
+	// 写入队列（有界，避免无限goroutine增长）
+	select {
+	case s.logQueue <- auditLog:
+	default:
+		log.Warn().Str("actor", actor).Str("action", action).Msg("审计日志队列已满，丢弃日志")
+	}
 }
 
 // ListLogs 查询审计日志

@@ -48,6 +48,9 @@ func (h *SystemHandler) ExpiringCerts(c *gin.Context) {
 	if days < 1 {
 		days = 30
 	}
+	if days > 365 {
+		days = 365
+	}
 
 	certs, err := h.mgmtSvc.ListExpiringCertificates(ctx, days)
 	if err != nil {
