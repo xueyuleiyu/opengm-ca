@@ -370,8 +370,12 @@ func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig
 	}
 
 	// 构建证书模板
+	rootSerial, err := generateSerialNumber()
+	if err != nil {
+		return nil, fmt.Errorf("生成根CA序列号失败: %w", err)
+	}
 	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
+		SerialNumber: rootSerial,
 		Subject: pkix.Name{
 			CommonName:         req.Subject.CommonName,
 			Organization:       []string{req.Subject.Organization},
@@ -384,7 +388,7 @@ func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            2,
-		SubjectKeyId:          generateKeyID(pubKey),
+		SubjectKeyId:          GenerateKeyID(pubKey),
 	}
 
 	// 自签名
@@ -400,8 +404,12 @@ func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig
 
 	certPEM := pemEncode(certBytes, "CERTIFICATE")
 
+	caIDSerial, err := generateSerialNumber()
+	if err != nil {
+		return nil, fmt.Errorf("生成CA ID失败: %w", err)
+	}
 	instance := &CAInstance{
-		CAID:       int(generateSerialNumber().Int64()),
+		CAID:       int(caIDSerial.Int64()),
 		CAName:     req.Subject.CommonName,
 		CertPEM:    certPEM,
 		Cert:       cert,
@@ -424,8 +432,12 @@ func (e *CAEngine) createIntermediateCA(ctx context.Context, parent *CAInstance,
 	}
 
 	// 构建证书模板
+	interSerial, err := generateSerialNumber()
+	if err != nil {
+		return nil, fmt.Errorf("生成中间CA序列号失败: %w", err)
+	}
 	template := &x509.Certificate{
-		SerialNumber: generateSerialNumber(),
+		SerialNumber: interSerial,
 		Subject: pkix.Name{
 			CommonName:         req.Subject.CommonName,
 			Organization:       []string{req.Subject.Organization},
@@ -437,7 +449,7 @@ func (e *CAEngine) createIntermediateCA(ctx context.Context, parent *CAInstance,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            req.MaxPathLen,
-		SubjectKeyId:          generateKeyID(pubKey),
+		SubjectKeyId:          GenerateKeyID(pubKey),
 		AuthorityKeyId:        parent.Cert.SubjectKeyId,
 	}
 
@@ -454,8 +466,12 @@ func (e *CAEngine) createIntermediateCA(ctx context.Context, parent *CAInstance,
 	}
 
 	certPEM := pemEncode(certBytes, "CERTIFICATE")
+	caIDSerial, err := generateSerialNumber()
+	if err != nil {
+		return nil, fmt.Errorf("生成CA ID失败: %w", err)
+	}
 	instance := &CAInstance{
-		CAID:       int(generateSerialNumber().Int64()),
+		CAID:       int(caIDSerial.Int64()),
 		CAName:     req.CAName,
 		CertPEM:    certPEM,
 		Cert:       cert,
@@ -476,10 +492,21 @@ func (e *CAEngine) IssueCertificate(ctx context.Context, caName string, req *mod
 		return nil, fmt.Errorf("CA %s 不存在", caName)
 	}
 
+	// 校验CA是否仍在有效期内
+	now := time.Now()
+	if now.Before(ca.Cert.NotBefore) || now.After(ca.Cert.NotAfter) {
+		return nil, fmt.Errorf("签名CA %s 已过期或尚未生效", caName)
+	}
+
 	// 构建证书模板
 	template, err := buildCertTemplate(req)
 	if err != nil {
 		return nil, fmt.Errorf("构建证书模板失败: %w", err)
+	}
+
+	// 校验终端证书有效期不超过父CA有效期
+	if template.NotAfter.After(ca.Cert.NotAfter) {
+		return nil, fmt.Errorf("终端证书有效期(%s)不得超过签名CA有效期(%s)", template.NotAfter.Format(time.RFC3339), ca.Cert.NotAfter.Format(time.RFC3339))
 	}
 
 	// 使用CA签名
@@ -551,14 +578,17 @@ func generateKeyPair(algorithm string, keySize int) (interface{}, interface{}, e
 }
 
 // generateSerialNumber 生成证书序列号
-func generateSerialNumber() *big.Int {
+func generateSerialNumber() (*big.Int, error) {
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, _ := rand.Int(rand.Reader, serialNumberLimit)
-	return serialNumber
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return nil, fmt.Errorf("生成证书序列号失败(熵源错误): %w", err)
+	}
+	return serialNumber, nil
 }
 
-// generateKeyID 生成主题密钥标识符 (RFC 5280: SHA-1 hash of public key DER)
-func generateKeyID(pubKey interface{}) []byte {
+// GenerateKeyID 生成主题密钥标识符 (RFC 5280: SHA-1 hash of public key DER)
+func GenerateKeyID(pubKey interface{}) []byte {
 	pubDER, err := smx509.MarshalPKIXPublicKey(pubKey)
 	if err != nil {
 		// Fallback to standard x509 for non-SM2 keys
@@ -576,9 +606,13 @@ func generateKeyID(pubKey interface{}) []byte {
 
 // buildCertTemplate 根据请求构建证书模板
 func buildCertTemplate(req *model.CertificateRequest) (*x509.Certificate, error) {
+	serial, err := generateSerialNumber()
+	if err != nil {
+		return nil, fmt.Errorf("生成证书序列号失败: %w", err)
+	}
 	// TODO: 根据证书类型(SSL/AUTH/VPN)构建不同的KeyUsage和扩展
 	return &x509.Certificate{
-		SerialNumber: generateSerialNumber(),
+		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName:         req.Subject.CommonName,
 			Organization:       []string{req.Subject.Organization},

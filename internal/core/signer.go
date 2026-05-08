@@ -2,8 +2,11 @@ package core
 
 import (
 	"crypto"
+	"crypto/rand"
 	"fmt"
 	"hash"
+	"os"
+	"time"
 
 	"github.com/emmansun/gmsm/sm2"
 	"github.com/emmansun/gmsm/sm3"
@@ -34,21 +37,22 @@ type Signer interface {
 // SM2Signer SM2签名器
 type SM2Signer struct {
 	PrivateKey *sm2.PrivateKey
+	UID        []byte
 }
 
 // NewSM2Signer 创建SM2签名器
 func NewSM2Signer(privKey *sm2.PrivateKey) *SM2Signer {
-	return &SM2Signer{PrivateKey: privKey}
+	return &SM2Signer{PrivateKey: privKey, UID: resolveSM2UID()}
 }
 
 // Sign 使用SM2签名(自动做SM3哈希)
 func (s *SM2Signer) Sign(data []byte) ([]byte, error) {
-	return s.PrivateKey.Sign(nil, data, nil)
+	return sm2.SignASN1(rand.Reader, s.PrivateKey, data, sm2.NewSM2SignerOption(true, s.UID))
 }
 
 // SignDigest 对SM3摘要签名
 func (s *SM2Signer) SignDigest(digest []byte) ([]byte, error) {
-	return s.PrivateKey.Sign(nil, digest, nil)
+	return sm2.SignASN1(rand.Reader, s.PrivateKey, digest, sm2.NewSM2SignerOption(true, s.UID))
 }
 
 // PublicKey 返回SM2公钥
@@ -66,9 +70,18 @@ func (s *SM2Signer) HashFunc() hash.Hash {
 	return sm3.New()
 }
 
-// defaultSM2UID 返回默认SM2 UserID
-func defaultSM2UID() []byte {
-	return []byte("1234567812345678")
+// resolveSM2UID 从环境变量读取SM2 UserID，未设置则生成随机值
+func resolveSM2UID() []byte {
+	if uid := os.Getenv("CA_SM2_USER_ID"); uid != "" {
+		return []byte(uid)
+	}
+	// 未配置时生成随机16字节UID（避免使用硬编码测试值）
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// 熵源失败时回退到时间戳派生（极罕见）
+		return []byte(fmt.Sprintf("%016x", time.Now().UnixNano()))
+	}
+	return b
 }
 
 // SignerFactory 签名器工厂

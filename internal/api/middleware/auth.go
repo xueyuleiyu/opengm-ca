@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -113,28 +114,32 @@ func GenerateJWT(cfg *config.AuthConfig, userID, username string, role string, p
 
 // RateLimitMiddleware 简单限流中间件
 func RateLimitMiddleware(maxRequests int, window time.Duration) gin.HandlerFunc {
-	// 简化实现：使用内存map记录请求次数
+	// 简化实现：使用内存map记录请求次数（带锁保护）
 	type clientInfo struct {
 		count   int
 		resetAt time.Time
 	}
 	clients := make(map[string]*clientInfo)
+	var mu sync.RWMutex
 
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
 		now := time.Now()
 
+		mu.Lock()
 		info, exists := clients[clientIP]
 		if !exists || now.After(info.resetAt) {
 			clients[clientIP] = &clientInfo{
 				count:   1,
 				resetAt: now.Add(window),
 			}
+			mu.Unlock()
 			c.Next()
 			return
 		}
 
 		if info.count >= maxRequests {
+			mu.Unlock()
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"code":    "RATE_LIMITED",
 				"message": "请求过于频繁，请稍后重试",
@@ -144,6 +149,7 @@ func RateLimitMiddleware(maxRequests int, window time.Duration) gin.HandlerFunc 
 		}
 
 		info.count++
+		mu.Unlock()
 		c.Next()
 	}
 }

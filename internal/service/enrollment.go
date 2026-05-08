@@ -12,6 +12,9 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net"
+	"regexp"
+	"strings"
 	"time"
 
 	smx509 "github.com/emmansun/gmsm/smx509"
@@ -123,7 +126,12 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 		return nil, fmt.Errorf("必须提供CSR或选择本地生成密钥")
 	}
 
-	// 5. 构建证书模板并签发
+	// 5. 校验公钥强度
+	if err := validatePublicKeyStrength(pubKey, req.Algorithm); err != nil {
+		return nil, fmt.Errorf("公钥强度校验失败: %w", err)
+	}
+
+	// 6. 构建证书模板并签发
 	template, err := s.buildCertTemplate(req, subject, ca)
 	if err != nil {
 		return nil, fmt.Errorf("构建证书模板失败: %w", err)
@@ -185,7 +193,7 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 			"validity":  req.ValidityDays,
 		}, model.ResultSuccess, "")
 
-	// 9. 构建响应
+	// 10. 构建响应
 	resp := &model.CertificateResponse{
 		CertID:       fmt.Sprintf("%d", certModel.ID),
 		SerialNumber: certModel.SerialNumber,
@@ -232,6 +240,24 @@ func (s *EnrollmentService) validateRequest(req *model.CertificateRequest) error
 	if req.CSRPEM == "" {
 		if req.Subject.CommonName == "" {
 			return fmt.Errorf("缺少证书主题CommonName")
+		}
+	}
+
+	// 校验Subject字段（防止X.500注入和日志伪造）
+	if err := sanitizeSubject(&req.Subject); err != nil {
+		return fmt.Errorf("主题字段非法: %w", err)
+	}
+
+	// 校验SAN值
+	for _, san := range req.Extensions.SubjectAltNames {
+		if san.Type == "dns" {
+			if strings.Contains(san.Value, "\n") || strings.Contains(san.Value, "\x00") {
+				return fmt.Errorf("DNS SAN包含非法字符")
+			}
+		} else if san.Type == "ip" {
+			if net.ParseIP(san.Value) == nil {
+				return fmt.Errorf("IP SAN格式无效: %s", san.Value)
+			}
 		}
 	}
 
@@ -318,6 +344,9 @@ func (s *EnrollmentService) parseCSR(csrPEM string) (interface{}, *model.Subject
 	// 尝试 smx509（支持SM2国密CSR）
 	csrSM2, err := smx509.ParseCertificateRequest(block.Bytes)
 	if err == nil {
+		if err := csrSM2.CheckSignature(); err != nil {
+			return nil, nil, fmt.Errorf("CSR签名验证失败: %w", err)
+		}
 		subject := extractSubjectFromCSR(csrSM2.Subject, csrSM2.DNSNames)
 		return csrSM2.PublicKey, subject, nil
 	}
@@ -326,6 +355,10 @@ func (s *EnrollmentService) parseCSR(csrPEM string) (interface{}, *model.Subject
 	csr, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
 		return nil, nil, fmt.Errorf("解析CSR失败: %w", err)
+	}
+
+	if err := csr.CheckSignature(); err != nil {
+		return nil, nil, fmt.Errorf("CSR签名验证失败: %w", err)
 	}
 
 	subject := extractSubjectFromCSR(csr.Subject, csr.DNSNames)
@@ -354,8 +387,11 @@ func firstOrEmpty(s []string) string {
 
 // buildCertTemplate 构建证书模板
 func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, subject *model.Subject, ca *model.CAChain) (*x509.Certificate, error) {
-	serialNumber := new(big.Int)
-	serialNumber.SetBytes([]byte(uuid.New().String()))
+	// 使用加密安全随机数生成证书序列号
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, fmt.Errorf("生成证书序列号失败: %w", err)
+	}
 
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
@@ -367,8 +403,10 @@ func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, sub
 			Province:           []string{subject.State},
 			Locality:           []string{subject.Locality},
 		},
-		NotBefore: time.Now().Add(-1 * time.Hour),
-		NotAfter:  time.Now().AddDate(0, 0, req.ValidityDays),
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().AddDate(0, 0, req.ValidityDays),
+		BasicConstraintsValid: true,
+		IsCA:                  false,
 	}
 
 	// 根据证书类型应用模板配置（支持YAML驱动）
@@ -384,18 +422,19 @@ func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, sub
 	// 添加SAN扩展
 	if len(req.Extensions.SubjectAltNames) > 0 {
 		var dnsNames []string
-		var ipAddresses []string
+		var ipAddresses []net.IP
 		for _, san := range req.Extensions.SubjectAltNames {
 			switch san.Type {
 			case "dns":
 				dnsNames = append(dnsNames, san.Value)
 			case "ip":
-				ipAddresses = append(ipAddresses, san.Value)
+				if ip := net.ParseIP(san.Value); ip != nil {
+					ipAddresses = append(ipAddresses, ip)
+				}
 			}
 		}
 		template.DNSNames = dnsNames
-		// TODO: 添加IP地址
-		_ = ipAddresses
+		template.IPAddresses = ipAddresses
 	}
 
 	return template, nil
@@ -407,6 +446,10 @@ func (s *EnrollmentService) signCertificate(template *x509.Certificate, pubKey i
 	if err != nil {
 		return nil, fmt.Errorf("获取CA实例失败(%s): %w", ca.CAName, err)
 	}
+
+	// 添加关键PKI扩展
+	template.SubjectKeyId = core.GenerateKeyID(pubKey)
+	template.AuthorityKeyId = caInstance.Cert.SubjectKeyId
 
 	certBytes, err := smx509.CreateCertificate(rand.Reader, template, caInstance.Cert, pubKey, caInstance.Signer)
 	if err != nil {
@@ -427,4 +470,57 @@ func (s *EnrollmentService) mapPublicKeyAlgorithm(algorithm string) model.Public
 	default:
 		return model.PubKeySM2
 	}
+}
+
+// validatePublicKeyStrength 校验公钥强度
+func validatePublicKeyStrength(pubKey interface{}, algorithm string) error {
+	switch key := pubKey.(type) {
+	case *rsa.PublicKey:
+		bits := key.N.BitLen()
+		if bits < 2048 {
+			return fmt.Errorf("RSA密钥强度不足: %d位(最低要求2048位)", bits)
+		}
+	case *ecdsa.PublicKey:
+		curveBits := key.Curve.Params().BitSize
+		if algorithm == "SM2" && curveBits == 256 {
+			return nil
+		}
+		if curveBits < 256 {
+			return fmt.Errorf("ECDSA曲线强度不足: %d位(最低要求256位)", curveBits)
+		}
+	default:
+		return fmt.Errorf("无法识别的公钥类型")
+	}
+	return nil
+}
+
+// sanitizeSubject 净化证书主题字段，防止X.500注入和日志伪造
+func sanitizeSubject(subject *model.SubjectInfo) error {
+	// 拒绝包含换行符、空字节或控制字符的字段
+	invalidChars := regexp.MustCompile(`[\x00-\x08\x0a-\x1f\x7f]`)
+	checkField := func(name, value string) error {
+		if invalidChars.MatchString(value) {
+			return fmt.Errorf("字段 %s 包含非法控制字符", name)
+		}
+		return nil
+	}
+	if err := checkField("CommonName", subject.CommonName); err != nil {
+		return err
+	}
+	if err := checkField("Organization", subject.Organization); err != nil {
+		return err
+	}
+	if err := checkField("OrganizationalUnit", subject.OrganizationalUnit); err != nil {
+		return err
+	}
+	if err := checkField("Country", subject.Country); err != nil {
+		return err
+	}
+	if err := checkField("State", subject.State); err != nil {
+		return err
+	}
+	if err := checkField("Locality", subject.Locality); err != nil {
+		return err
+	}
+	return nil
 }

@@ -1,0 +1,27 @@
+# LiteLLM Proxy 配置
+# 作用：将 Claude Code 的 Anthropic API 请求转换为 Kimi Code API 请求
+
+model_list:
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: openai/kimi-for-coding
+      api_base: https://api.kimi.com/coding/v1
+      api_key: os.environ/MOONSHOT_API_KEY
+
+  - model_name: claude-opus-4-6
+    litellm_params:
+      model: openai/kimi-for-coding
+      api_base: https://api.kimi.com/coding/v1
+      api_key: os.environ/MOONSHOT_API_KEY
+
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: openai/kimi-for-coding
+      api_base: https://api.kimi.com/coding/v1
+      api_key: os.environ/MOONSHOT_API_KEY
+
+# 关键设置：强制将 Anthropic /v1/messages 转为 /v1/chat/completions
+litellm_settings:
+  use_chat_completions_url_for_anthropic_messages: true
+  default_headers:
+    User-Agent: "claude-code/0.1.0"

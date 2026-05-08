@@ -7,6 +7,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 
@@ -105,14 +107,29 @@ func EncodeECPrivateKey(privateKey *ecdsa.PrivateKey) (string, error) {
 	return string(pem.EncodeToMemory(block)), nil
 }
 
-// EncodeSM2PrivateKey 将SM2私钥编码为PEM格式(32字节D值)
+// EncodeSM2PrivateKey 将SM2私钥编码为PKCS#8 PEM格式
 func EncodeSM2PrivateKey(privateKey *sm2.PrivateKey) (string, error) {
-	dBytes := privateKey.D.Bytes()
-	data := make([]byte, 32)
-	copy(data[32-len(dBytes):], dBytes)
+	oidSM2 := asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 301}
+	rawBytes, err := asn1.Marshal(privateKey.D.Bytes())
+	if err != nil {
+		return "", fmt.Errorf("SM2私钥ASN.1编码失败: %w", err)
+	}
+	info := struct {
+		Version             int
+		PrivateKeyAlgorithm pkix.AlgorithmIdentifier
+		PrivateKey          []byte
+	}{
+		Version:             0,
+		PrivateKeyAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidSM2},
+		PrivateKey:          rawBytes,
+	}
+	privBytes, err := asn1.Marshal(info)
+	if err != nil {
+		return "", fmt.Errorf("SM2 PKCS#8编码失败: %w", err)
+	}
 	block := &pem.Block{
-		Type:  "SM2 PRIVATE KEY",
-		Bytes: data,
+		Type:  "PRIVATE KEY",
+		Bytes: privBytes,
 	}
 	return string(pem.EncodeToMemory(block)), nil
 }
@@ -159,6 +176,12 @@ func ParsePrivateKeyFromPEM(pemData string) (interface{}, error) {
 		return x509.ParsePKCS1PrivateKey(block.Bytes)
 	case "EC PRIVATE KEY":
 		return x509.ParseECPrivateKey(block.Bytes)
+	case "SM2 PRIVATE KEY":
+		// 向后兼容：原始32字节D值
+		if len(block.Bytes) == 32 {
+			return sm2.NewPrivateKey(block.Bytes)
+		}
+		return nil, fmt.Errorf("无效的SM2私钥长度: %d", len(block.Bytes))
 	default:
 		return nil, fmt.Errorf("不支持的私钥类型: %s", block.Type)
 	}

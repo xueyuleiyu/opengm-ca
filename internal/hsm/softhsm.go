@@ -52,8 +52,11 @@ func NewSoftHSM(baseDir, password string) (*SoftHSM, error) {
 		return nil, fmt.Errorf("创建HSM目录失败: %w", err)
 	}
 
-	// 使用PBKDF2从密码派生主密钥
-	salt := []byte("openGM-CA-SoftHSM-v1")
+	// 使用PBKDF2从密码派生主密钥（使用随机盐）
+	salt, err := loadOrGenerateSalt(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("加载或生成HSM盐值失败: %w", err)
+	}
 	masterKey := pbkdf2.Key([]byte(password), salt, 100000, 32, sha256.New)
 
 	hsm := &SoftHSM{
@@ -322,22 +325,9 @@ func (h *SoftHSM) ImportKey(algorithm string, privateKey interface{}, keyType st
 	return handle, nil
 }
 
-// ExportKey 导出密钥
+// ExportKey 导出密钥（生产环境禁止直接导出原始私钥）
 func (h *SoftHSM) ExportKey(handle string) (interface{}, error) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	record, ok := h.keys[handle]
-	if !ok {
-		return nil, fmt.Errorf("密钥不存在: %s", handle)
-	}
-
-	privBytes, err := h.decrypt(record.EncryptedKey, record.Nonce)
-	if err != nil {
-		return nil, fmt.Errorf("解密私钥失败: %w", err)
-	}
-
-	return x509.ParsePKCS8PrivateKey(privBytes)
+	return nil, fmt.Errorf("HSM禁止直接导出原始私钥，请使用受控导出流程")
 }
 
 // GetKeyInfo 获取密钥信息
@@ -375,6 +365,23 @@ func (h *SoftHSM) Status() (*HSMStatus, error) {
 // Close 关闭HSM
 func (h *SoftHSM) Close() error {
 	return nil
+}
+
+// loadOrGenerateSalt 加载已有盐值或生成新的随机盐
+func loadOrGenerateSalt(baseDir string) ([]byte, error) {
+	saltPath := filepath.Join(baseDir, ".salt")
+	if data, err := os.ReadFile(saltPath); err == nil && len(data) >= 16 {
+		return data, nil
+	}
+	// 生成新的随机盐
+	salt := make([]byte, 16)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return nil, fmt.Errorf("生成HSM盐值失败: %w", err)
+	}
+	if err := os.WriteFile(saltPath, salt, 0600); err != nil {
+		return nil, fmt.Errorf("保存HSM盐值失败: %w", err)
+	}
+	return salt, nil
 }
 
 // 内部方法：加密

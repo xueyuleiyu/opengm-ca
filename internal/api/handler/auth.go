@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"net/http"
+	"os"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/opengm-ca/opengm-ca/internal/api/middleware"
@@ -10,6 +14,7 @@ import (
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/opengm-ca/opengm-ca/internal/repository"
 	"github.com/opengm-ca/opengm-ca/internal/service"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -44,6 +49,9 @@ func getRolePermissions(role model.OperatorRole) []string {
 	return []string{}
 }
 
+// dummyBcryptHash 用于用户不存在时的恒定时间比较（缓解时序攻击）
+var dummyBcryptHash = []byte("$2a$10$N9qo8uLOickgx2ZMRZoMy.MqrqhmM6JGKpS4G3R1G2JH8YpfB0Bqy")
+
 // Login 用户登录
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req model.OperatorLoginRequest
@@ -55,6 +63,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// 查找用户
 	op, err := h.operatorRepo.GetByUsername(c.Request.Context(), req.Username)
 	if err != nil {
+		// 用户不存在时执行虚拟bcrypt比较以保持时序恒定，缓解用户枚举攻击
+		_ = bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password))
 		c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "用户名或密码错误"})
 		return
 	}
@@ -73,6 +83,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 				"登录失败: 密码错误", map[string]interface{}{"username": req.Username}, model.ResultFailed, "密码错误")
 		}
 		c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "用户名或密码错误"})
+		return
+	}
+
+	// MFA校验（如已启用）
+	if op.MFAEnabled {
+		if req.MFACode == "" {
+			c.JSON(http.StatusForbidden, gin.H{"code": "MFA_REQUIRED", "message": "需要MFA验证码"})
+			return
+		}
+		// TODO: 实现TOTP/HOTP验证逻辑（当前系统缺少TOTP库）
+		// 在实现前，启用MFA的账户无法登录，防止MFA被绕过
+		c.JSON(http.StatusForbidden, gin.H{"code": "MFA_NOT_IMPLEMENTED", "message": "MFA验证功能尚未完全实现，请联系管理员"})
 		return
 	}
 
@@ -100,7 +122,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	// 更新登录信息
-	_ = h.operatorRepo.UpdateLoginInfo(c.Request.Context(), op.ID, c.ClientIP())
+	if err := h.operatorRepo.UpdateLoginInfo(c.Request.Context(), op.ID, c.ClientIP()); err != nil {
+		log.Warn().Err(err).Int("operator_id", op.ID).Msg("更新登录信息失败")
+	}
 
 	if h.auditSvc != nil {
 		h.auditSvc.Log(c.Request.Context(), model.EventAdminLogin, model.SeverityInfo, req.Username, c.ClientIP(), "OPERATOR", strconv.Itoa(op.ID),
@@ -127,7 +151,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 // RefreshToken 刷新Token
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"code": "OK", "message": "Token刷新功能开发中"})
+	c.JSON(http.StatusNotImplemented, gin.H{"code": "NOT_IMPLEMENTED", "message": "Token刷新功能尚未实现"})
 }
 
 // InitDefaultAdmins 初始化三员管理员（允许补充创建缺失的角色）
@@ -166,9 +190,9 @@ func (h *AuthHandler) InitDefaultAdmins(c *gin.Context) {
 		role     model.OperatorRole
 		skip     bool
 	}{
-		{"sys_admin", "iRqk5kj7WH9sBgMH", "系统管理员", "sys_admin@localhost", model.RoleSysAdmin, false},
-		{"sec_admin", "wBqpVuGbqUuE6b2u", "安全管理员", "sec_admin@localhost", model.RoleSecAdmin, hasSecAdmin},
-		{"audit_admin", "pa9bUFV4B9gPvAJi", "审计管理员", "audit_admin@localhost", model.RoleAuditor, hasAuditAdmin},
+		{"sys_admin", getEnvOrRandomPassword("CA_DEFAULT_SYS_ADMIN_PASSWORD"), "系统管理员", "sys_admin@localhost", model.RoleSysAdmin, false},
+		{"sec_admin", getEnvOrRandomPassword("CA_DEFAULT_SEC_ADMIN_PASSWORD"), "安全管理员", "sec_admin@localhost", model.RoleSecAdmin, hasSecAdmin},
+		{"audit_admin", getEnvOrRandomPassword("CA_DEFAULT_AUDIT_ADMIN_PASSWORD"), "审计管理员", "audit_admin@localhost", model.RoleAuditor, hasAuditAdmin},
 	}
 
 	created := 0
@@ -208,4 +232,17 @@ func (h *AuthHandler) InitDefaultAdmins(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": "OK", "message": "三员管理员初始化成功", "data": gin.H{"created": created}})
+}
+
+// getEnvOrRandomPassword 从环境变量读取密码，未设置则生成随机密码
+func getEnvOrRandomPassword(envKey string) string {
+	if pw := os.Getenv(envKey); pw != "" {
+		return pw
+	}
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		// 熵源失败时使用时间戳派生（极罕见）
+		return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(time.Now().UnixNano(), 10)))
+	}
+	return base64.StdEncoding.EncodeToString(b)
 }

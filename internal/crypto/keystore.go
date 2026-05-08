@@ -4,11 +4,13 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/opengm-ca/opengm-ca/internal/model"
+	"golang.org/x/crypto/hkdf"
 )
 
 // KeyStore 密钥存储管理器
@@ -40,9 +42,11 @@ func (ks *KeyStore) EncryptPrivateKey(plaintext []byte) (ciphertext, salt, nonce
 		return nil, nil, nil, nil, fmt.Errorf("生成盐值失败: %w", err)
 	}
 
-	// 使用HKDF或简单KDF派生加密密钥
-	// 简化实现: 直接使用主密钥(生产环境应使用HKDF-SHA256)
-	derivedKey := ks.masterKey
+	// 使用HKDF-SHA256派生加密密钥
+	derivedKey, err := ks.deriveKey(salt)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("派生加密密钥失败: %w", err)
+	}
 
 	// 生成随机nonce(12字节，GCM标准)
 	nonce = make([]byte, 12)
@@ -74,9 +78,11 @@ func (ks *KeyStore) EncryptPrivateKey(plaintext []byte) (ciphertext, salt, nonce
 
 // DecryptPrivateKey 使用主密钥解密私钥
 func (ks *KeyStore) DecryptPrivateKey(ciphertext, salt, nonce, tag []byte) ([]byte, error) {
-	// 派生密钥(简化实现)
-	_ = salt // 盐值预留用于未来KDF扩展
-	derivedKey := ks.masterKey
+	// 使用HKDF-SHA256派生解密密钥
+	derivedKey, err := ks.deriveKey(salt)
+	if err != nil {
+		return nil, fmt.Errorf("派生解密密钥失败: %w", err)
+	}
 
 	// AES-256-GCM解密
 	block, err := aes.NewCipher(derivedKey)
@@ -142,6 +148,16 @@ func (ks *KeyStore) RetrieveKey(keyModel *model.CertKey) ([]byte, error) {
 	}
 
 	return plaintext, nil
+}
+
+// deriveKey 使用HKDF-SHA256从主密钥和盐派生加密密钥
+func (ks *KeyStore) deriveKey(salt []byte) ([]byte, error) {
+	hkdfReader := hkdf.New(sha256.New, ks.masterKey, salt, []byte("opengm-ca-keystore-v1"))
+	derivedKey := make([]byte, 32)
+	if _, err := io.ReadFull(hkdfReader, derivedKey); err != nil {
+		return nil, fmt.Errorf("HKDF密钥派生失败: %w", err)
+	}
+	return derivedKey, nil
 }
 
 // resolveMasterKey 解析主密钥

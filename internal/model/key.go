@@ -113,10 +113,11 @@ func (k *CertKey) IsSoftKey() bool {
 
 // KeyExportRequest 私钥导出请求
 type KeyExportRequest struct {
-	KeyID        string `json:"key_id" validate:"required"`
-	ExportFormat string `json:"export_format" validate:"required,oneof=PKCS1 PKCS8 PEM"`
-	Password     string `json:"password,omitempty"`
-	Reason       string `json:"reason" validate:"required,min=10"`
+	KeyID           string `json:"key_id" validate:"required"`
+	ExportFormat    string `json:"export_format" validate:"required,oneof=PKCS1 PKCS8 PEM"`
+	Password        string `json:"password,omitempty"`
+	CurrentPassword string `json:"current_password,omitempty"`
+	Reason          string `json:"reason" validate:"required,min=10"`
 }
 
 // KeyExportResponse 私钥导出响应
