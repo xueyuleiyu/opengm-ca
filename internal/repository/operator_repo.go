@@ -53,13 +53,17 @@ func (r *OperatorRepository) UpdateLoginInfo(ctx context.Context, id int, loginI
 	return err
 }
 
-// IncrementLoginFail 增加登录失败次数
-func (r *OperatorRepository) IncrementLoginFail(ctx context.Context, id int) error {
+// IncrementLoginFail 原子性增加登录失败次数并返回最新值
+func (r *OperatorRepository) IncrementLoginFail(ctx context.Context, id int) (int, error) {
+	var result struct {
+		Count int `bun:"login_fail_count"`
+	}
 	_, err := r.db.NewUpdate().Model((*model.Operator)(nil)).
 		Set("login_fail_count = login_fail_count + 1").
 		Where("id = ?", id).
-		Exec(ctx)
-	return err
+		Returning("login_fail_count").
+		Exec(ctx, &result)
+	return result.Count, err
 }
 
 // LockAccount 锁定账户
@@ -71,9 +75,34 @@ func (r *OperatorRepository) LockAccount(ctx context.Context, id int, lockedUnti
 	return err
 }
 
-// Update 更新操作员
-func (r *OperatorRepository) Update(ctx context.Context, op *model.Operator) error {
-	_, err := r.db.NewUpdate().Model(op).Where("id = ?", op.ID).Exec(ctx)
+// UpdateProfile 更新操作员基本信息（白名单列，防止敏感字段被覆盖）
+func (r *OperatorRepository) UpdateProfile(ctx context.Context, op *model.Operator) error {
+	_, err := r.db.NewUpdate().Model(op).
+		Column("real_name", "email", "phone", "role", "is_active", "permissions", "updated_at").
+		Where("id = ?", op.ID).
+		Exec(ctx)
+	return err
+}
+
+// UpdatePassword 更新密码并重置登录失败计数
+func (r *OperatorRepository) UpdatePassword(ctx context.Context, id int, hash string) error {
+	_, err := r.db.NewUpdate().Model((*model.Operator)(nil)).
+		Set("password_hash = ?", hash).
+		Set("login_fail_count = 0").
+		Set("locked_until = NULL").
+		Set("updated_at = NOW()").
+		Where("id = ?", id).
+		Exec(ctx)
+	return err
+}
+
+// ToggleStatus 启用/禁用操作员
+func (r *OperatorRepository) ToggleStatus(ctx context.Context, id int, isActive bool) error {
+	_, err := r.db.NewUpdate().Model((*model.Operator)(nil)).
+		Set("is_active = ?", isActive).
+		Set("updated_at = NOW()").
+		Where("id = ?", id).
+		Exec(ctx)
 	return err
 }
 

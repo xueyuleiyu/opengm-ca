@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,15 +32,16 @@ import (
 
 // EnrollmentService 证书申请服务
 type EnrollmentService struct {
-	cfg         *config.Config
-	caEngine    *core.CAEngine
-	keyGen      *opengmcrypto.KeyGenerator
-	keyStore    *opengmcrypto.KeyStore
-	certRepo    *repository.CertificateRepository
-	keyRepo     *repository.KeyRepository
-	subjectRepo *repository.SubjectRepository
-	caRepo      *repository.CAChainRepository
-	auditSvc    *AuditService
+	cfg           *config.Config
+	caEngine      *core.CAEngine
+	keyGen        *opengmcrypto.KeyGenerator
+	keyStore      *opengmcrypto.KeyStore
+	certRepo      *repository.CertificateRepository
+	keyRepo       *repository.KeyRepository
+	subjectRepo   *repository.SubjectRepository
+	caRepo        *repository.CAChainRepository
+	auditSvc      *AuditService
+	dualCertCoord *core.DualCertCoordinator
 }
 
 // NewEnrollmentService 创建证书申请服务
@@ -53,7 +55,7 @@ func NewEnrollmentService(
 	caRepo *repository.CAChainRepository,
 	auditSvc *AuditService,
 ) *EnrollmentService {
-	return &EnrollmentService{
+	es := &EnrollmentService{
 		cfg:         cfg,
 		caEngine:    caEngine,
 		keyGen:      opengmcrypto.NewKeyGenerator(),
@@ -64,11 +66,54 @@ func NewEnrollmentService(
 		caRepo:      caRepo,
 		auditSvc:    auditSvc,
 	}
+	if caEngine != nil && keyStore != nil && keyRepo != nil && certRepo != nil {
+		es.dualCertCoord = core.NewDualCertCoordinator(caEngine, keyStore, keyRepo, certRepo)
+	}
+	return es
 }
 
 // EnrollCertificate 证书申请入口
 func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.CertificateRequest, issuedBy, actorIP string) (*model.CertificateResponse, error) {
-	log.Info().Str("cert_type", req.CertType).Str("subject", req.Subject.CommonName).Msg("证书申请")
+	log.Info().Str("cert_type", req.CertType).Str("subject", req.Subject.CommonName).Bool("dual_cert", req.DualCertMode).Msg("证书申请")
+
+	// 双证书模式：直接委托双证书协调器处理
+	if req.DualCertMode {
+		if s.dualCertCoord == nil {
+			return nil, fmt.Errorf("双证书协调器未初始化")
+		}
+		if req.CertType != string(model.CertTypeVPNSign) {
+			return nil, fmt.Errorf("双证书模式仅支持 VPN_SIGN 类型")
+		}
+		dualResp, err := s.dualCertCoord.IssueDualCertificates(ctx, req, issuedBy)
+		if err != nil {
+			return nil, fmt.Errorf("双证书签发失败: %w", err)
+		}
+		// 记录审计日志
+		if s.auditSvc != nil {
+			s.auditSvc.Log(ctx, model.EventCertIssue, model.SeverityInfo, issuedBy, actorIP, "CERTIFICATE", dualResp.SignCert.SerialNumber,
+				fmt.Sprintf("签发VPN双证书: %s", req.Subject.CommonName), map[string]interface{}{
+					"sign_serial": dualResp.SignCert.SerialNumber,
+					"enc_serial":  dualResp.EncCert.SerialNumber,
+					"algorithm":   req.Algorithm,
+				}, model.ResultSuccess, "")
+		}
+		// 构造统一响应
+		resp := &model.CertificateResponse{
+			CertID:       dualResp.SignCert.CertID,
+			SerialNumber: dualResp.SignCert.SerialNumber,
+			CertPEM:      dualResp.SignCert.CertPEM,
+			SubjectDN:    req.Subject.CommonName,
+			IssuerDN:     "",
+			Algorithm:    req.Algorithm,
+			IssuedAt:     time.Now(),
+			ExpiresAt:    time.Now().Add(time.Duration(req.ValidityDays) * 24 * time.Hour),
+			DualCerts:    dualResp,
+		}
+		if dualResp.SignCert.PrivateKeyPEM != "" {
+			resp.PrivateKeyPEM = &dualResp.SignCert.PrivateKeyPEM
+		}
+		return resp, nil
+	}
 
 	// 预处理CSR（如果提供）
 	var csrPubKey interface{}
@@ -96,7 +141,10 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 	}
 
 	// 3. 确定使用哪个CA
-	caName := s.selectCA(req.CertType)
+	caName, err := s.selectCA(req.CertType)
+	if err != nil {
+		return nil, fmt.Errorf("选择CA失败: %w", err)
+	}
 	ca, err := s.caRepo.GetByName(ctx, caName)
 	if err != nil {
 		return nil, fmt.Errorf("获取CA失败: %w", err)
@@ -178,7 +226,9 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 	// 7. 更新密钥关联的证书ID
 	if keyModel != nil {
 		keyModel.CertID = &certModel.ID
-		// TODO: update key record
+		if err := s.keyRepo.UpdateCertID(ctx, keyModel.KeyID, certModel.ID); err != nil {
+			log.Warn().Err(err).Str("key_id", keyModel.KeyID).Int64("cert_id", certModel.ID).Msg("密钥证书关联更新失败")
+		}
 	}
 
 	// 8. Metrics 埋点
@@ -225,17 +275,8 @@ func (s *EnrollmentService) validateRequest(req *model.CertificateRequest) error
 	}
 
 	// CSR模式下不校验算法（从CSR自动推断）
-	if req.CSRPEM == "" {
-		validAlg := false
-		for _, a := range s.cfg.CertPolicy.AllowedAlgorithms {
-			if a == req.Algorithm {
-				validAlg = true
-				break
-			}
-		}
-		if !validAlg {
-			return fmt.Errorf("不支持的算法: %s", req.Algorithm)
-		}
+	if req.CSRPEM == "" && !slices.Contains(s.cfg.CertPolicy.AllowedAlgorithms, req.Algorithm) {
+		return fmt.Errorf("不支持的算法: %s", req.Algorithm)
 	}
 
 	// CSR模式下Subject可以为空（从CSR提取）
@@ -267,16 +308,16 @@ func (s *EnrollmentService) validateRequest(req *model.CertificateRequest) error
 }
 
 // selectCA 根据证书类型选择CA
-func (s *EnrollmentService) selectCA(certType string) string {
+func (s *EnrollmentService) selectCA(certType string) (string, error) {
 	switch certType {
 	case "SSL":
-		return "SSL-CA"
+		return "SSL-CA", nil
 	case "AUTH":
-		return "AUTH-CA"
+		return "AUTH-CA", nil
 	case "VPN", "VPN_SIGN", "VPN_ENC":
-		return "VPN-CA"
+		return "VPN-CA", nil
 	default:
-		return "SSL-CA"
+		return "", fmt.Errorf("不支持的证书类型: %s", certType)
 	}
 }
 
@@ -321,19 +362,7 @@ func (s *EnrollmentService) createKeyRecord(ctx context.Context, subjectID int, 
 
 // encodePrivateKey 编码私钥为PEM
 func (s *EnrollmentService) encodePrivateKey(privKey interface{}, algorithm string) (string, error) {
-	switch algorithm {
-	case "RSA2048", "RSA4096":
-		importRSA := privKey.(*rsa.PrivateKey)
-		return opengmcrypto.EncodePrivateKeyToPKCS1(importRSA)
-	case "EC256", "EC384":
-		importEC := privKey.(*ecdsa.PrivateKey)
-		return opengmcrypto.EncodeECPrivateKey(importEC)
-	case "SM2":
-		importSM2 := privKey.(*sm2.PrivateKey)
-		return opengmcrypto.EncodeSM2PrivateKey(importSM2)
-	default:
-		return opengmcrypto.EncodePrivateKeyToPKCS8(privKey)
-	}
+	return opengmcrypto.EncodePrivateKey(privKey, algorithm)
 }
 
 // parseCSR 解析标准PKCS#10 CSR，返回公钥和主题信息
@@ -395,6 +424,12 @@ func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, sub
 		return nil, fmt.Errorf("生成证书序列号失败: %w", err)
 	}
 
+	notAfter := time.Now().AddDate(0, 0, req.ValidityDays)
+	// 终端证书有效期不得超过签名CA有效期
+	if notAfter.After(ca.ValidTo) {
+		notAfter = ca.ValidTo
+	}
+
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
@@ -406,7 +441,7 @@ func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, sub
 			Locality:           []string{subject.Locality},
 		},
 		NotBefore:             time.Now().Add(-1 * time.Hour),
-		NotAfter:              time.Now().AddDate(0, 0, req.ValidityDays),
+		NotAfter:              notAfter,
 		BasicConstraintsValid: true,
 		IsCA:                  false,
 	}
@@ -418,7 +453,12 @@ func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, sub
 		}
 	} else {
 		// 默认模板
-		template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment
+		switch req.CertType {
+		case "AUTH":
+			template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageContentCommitment
+		default:
+			template.KeyUsage = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment
+		}
 	}
 
 	// 添加SAN扩展
@@ -506,33 +546,21 @@ func validatePublicKeyStrength(pubKey interface{}, algorithm string) error {
 	return nil
 }
 
+var invalidChars = regexp.MustCompile(`[\x00-\x08\x0a-\x1f\x7f]`)
+
 // sanitizeSubject 净化证书主题字段，防止X.500注入和日志伪造
 func sanitizeSubject(subject *model.SubjectInfo) error {
-	// 拒绝包含换行符、空字节或控制字符的字段
-	invalidChars := regexp.MustCompile(`[\x00-\x08\x0a-\x1f\x7f]`)
-	checkField := func(name, value string) error {
+	for name, value := range map[string]string{
+		"CommonName":         subject.CommonName,
+		"Organization":       subject.Organization,
+		"OrganizationalUnit": subject.OrganizationalUnit,
+		"Country":            subject.Country,
+		"State":              subject.State,
+		"Locality":           subject.Locality,
+	} {
 		if invalidChars.MatchString(value) {
 			return fmt.Errorf("字段 %s 包含非法控制字符", name)
 		}
-		return nil
-	}
-	if err := checkField("CommonName", subject.CommonName); err != nil {
-		return err
-	}
-	if err := checkField("Organization", subject.Organization); err != nil {
-		return err
-	}
-	if err := checkField("OrganizationalUnit", subject.OrganizationalUnit); err != nil {
-		return err
-	}
-	if err := checkField("Country", subject.Country); err != nil {
-		return err
-	}
-	if err := checkField("State", subject.State); err != nil {
-		return err
-	}
-	if err := checkField("Locality", subject.Locality); err != nil {
-		return err
 	}
 	return nil
 }

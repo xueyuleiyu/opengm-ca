@@ -97,10 +97,16 @@ func (h *OperatorHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// 禁止通过更新接口赋予超级管理员角色
-	if req.Role != nil && *req.Role == model.RoleSuperAdmin {
-		c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "禁止提升为超级管理员角色"})
-		return
+	// 角色合法性校验
+	if req.Role != nil {
+		if !model.IsValidRole(*req.Role) {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_PARAMETER", "message": "无效的角色类型"})
+			return
+		}
+		if *req.Role == model.RoleSuperAdmin {
+			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "禁止提升为超级管理员角色"})
+			return
+		}
 	}
 
 	if err := h.opSvc.Update(c.Request.Context(), id, &req); err != nil {
@@ -167,6 +173,10 @@ func (h *OperatorHandler) ChangePassword(c *gin.Context) {
 	// 如果是安全管理员重置他人密码，不需要旧密码
 	if id != currentUserID && (currentRole == model.RoleSecAdmin || currentRole == model.RoleSuperAdmin) {
 		// 安全管理员直接设置新密码
+		if err := validatePasswordStrength(req.NewPassword); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "WEAK_PASSWORD", "message": err.Error()})
+			return
+		}
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "密码加密失败"})
@@ -193,6 +203,11 @@ func (h *OperatorHandler) ChangePassword(c *gin.Context) {
 
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(req.OldPassword)); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "旧密码错误"})
+		return
+	}
+
+	if err := validatePasswordStrength(req.NewPassword); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "WEAK_PASSWORD", "message": err.Error()})
 		return
 	}
 

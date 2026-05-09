@@ -232,6 +232,11 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("解析环境变量失败: %w", err)
 	}
 
+	// 校验JWT密钥长度
+	if len(cfg.Auth.JWT.Secret) < 32 {
+		return nil, fmt.Errorf("JWT密钥长度不足，至少需要32字节(256位)，请通过环境变量JWT_SECRET或配置文件设置足够强度的密钥")
+	}
+
 	globalConfig = &cfg
 	log.Info().Str("config", configPath).Msg("配置文件加载成功")
 	return &cfg, nil

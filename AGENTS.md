@@ -159,7 +159,10 @@ go build -o opengm-ca-init ./cmd/ca-init
 | `DB_PASSWORD` | openGauss 数据库密码 | 是 |
 | `JWT_SECRET` | JWT 签名密钥（建议 ≥32 字节随机字符串） | 是 |
 | `CA_HSM_PASSWORD` | 软 HSM 访问密码 | 是 |
-| `CA_MASTER_KEY` | 私钥加密主密钥 | 否（未设置则私钥加密/导出不可用） |
+| `CA_MASTER_KEY` | 私钥加密主密钥（建议 64 字符 hex，如 `openssl rand -hex 32`） | 否（未设置则私钥加密/导出不可用） |
+| `CA_DEFAULT_SYS_ADMIN_PASSWORD` | 系统管理员（SYS_ADMIN）初始密码 | 否（未设置则随机生成） |
+| `CA_DEFAULT_SEC_ADMIN_PASSWORD` | 安全管理员（SEC_ADMIN）初始密码 | 否（未设置则随机生成） |
+| `CA_DEFAULT_AUDIT_ADMIN_PASSWORD` | 审计管理员（AUDITOR）初始密码 | 否（未设置则随机生成） |
 
 ### 服务入口参数
 
@@ -169,11 +172,23 @@ go build -o opengm-ca-init ./cmd/ca-init
 ./ca-server -config ./configs/config.yaml -init-ca  # 初始化 CA
 ```
 
+### 首次部署初始化管理员
+
+```bash
+# 登录任意已有账号（如 SUPER_ADMIN）后调用
+POST /api/v1/auth/init-admins
+# 需要权限：USER_MANAGE
+```
+
+三员管理员（SYS_ADMIN / SEC_ADMIN / AUDITOR）的初始密码可通过以下方式指定（优先级从高到低）：
+1. 环境变量：`CA_DEFAULT_SYS_ADMIN_PASSWORD`、`CA_DEFAULT_SEC_ADMIN_PASSWORD`、`CA_DEFAULT_AUDIT_ADMIN_PASSWORD`
+2. 运行时密码学安全随机生成（24 字节 Base64，熵源失败则直接报错，**禁止回退到时间戳**）
+
 ### 目录布局（运行期）
 
 ```
 ./data/
-├── ca_keys/              # CA 私钥文件（明文 PEM，需保护）
+├── ca_keys/              # CA 私钥文件（加密 JSON，需保护）
 └── hsm/                  # 软 HSM 存储目录
 ./web/                    # 前端静态资源
 ./configs/config.yaml     # 主配置文件
@@ -200,11 +215,12 @@ Handler (api/handler)  →  Service (service)  →  Repository (repository)
 | 模块 | 职责 | 关键文件 |
 |------|------|----------|
 | **CA Engine** | 根 CA / 中间 CA 的创建、加载、证书签发、CRL 生成 | `internal/core/ca.go`, `signer.go` |
-| **Enrollment** | 处理证书申请（CSR / 本地生成密钥）、签发、续期 | `internal/service/enrollment.go` |
-| **Key Management** | 密钥生成、加密存储（SM4-GCM）、受控导出 | `internal/crypto/keystore.go`, `internal/service/key_export.go` |
-| **Audit** | 操作审计日志记录、哈希链完整性校验 | `internal/service/audit.go`, `internal/repository/audit_repo.go` |
-| **Auth** | 操作员登录、JWT 签发、RBAC 权限校验 | `internal/api/handler/auth.go`, `internal/api/middleware/auth.go` |
-| **HSM** | 密钥的 HSM 安全存储接口（当前为软实现） | `internal/hsm/softhsm.go` |
+| **Enrollment** | 处理证书申请（CSR / 本地生成密钥）、签发、续期；终端证书有效期自动截断至 CA 有效期 | `internal/service/enrollment.go` |
+| **Key Management** | 密钥生成、加密存储（SM4-GCM）、受控导出；导出计数原子化（`WHERE export_count < max_exports`） | `internal/crypto/keystore.go`, `internal/service/key_export.go` |
+| **Audit** | 操作审计日志记录、哈希链完整性校验；内存变量 `lastHash` + `sync.Mutex` 串行化计算，worker `recover()` 防崩溃 | `internal/service/audit.go`, `internal/repository/audit_repo.go` |
+| **Auth** | 操作员登录、JWT 签发、RBAC 权限校验；`sub` 强制字符串断言；密码强度服务端校验；JWT 实时状态校验（账户禁用/锁定即时生效） | `internal/api/handler/auth.go`, `internal/api/middleware/auth.go` |
+| **HSM** | 密钥的 HSM 安全存储接口（当前为软实现）；GCM 标准格式加密；PBKDF2 600,000 迭代 | `internal/hsm/softhsm.go` |
+| **Dual Cert** | VPN 双证书体系（签名+加密），签发后真实私钥持久化到密钥库 | `internal/core/dual_cert.go` |
 
 ### 证书类型
 
@@ -230,6 +246,12 @@ Handler (api/handler)  →  Service (service)  →  Repository (repository)
 - **包别名规则**：
   - 若标准库包名与项目内部包冲突，给项目包加别名 `opengmcrypto`。示例见 `internal/service/enrollment.go`
   - 国密 x509 使用别名 `smx509 "github.com/emmansun/gmsm/smx509"`
+- **代码去重约定**：
+  - 角色权限查询统一走 `model.GetRolePermissions()`，禁止各 handler 重复维护角色→权限映射表
+  - CRL RevokedEntry 构建统一走 `core.BuildRevokedEntries()`，禁止 service/handler 各写一套
+  - 私钥编码统一走 `crypto.EncodePrivateKey()`，统一 SM2/RSA/EC 的 PEM 编码逻辑
+  - 审计日志字段映射统一走 `model.AuditLog.toMap()`，消除 `ComputeHash` 与 `BuildRecordContent` 的重复 marshal 逻辑
+  - KeyUsage / ExtKeyUsage 映射优先使用 map 查找，禁止双层 switch 重复列举
 - **模型标签**：Bun ORM 模型使用 ``bun:"column_name,notnull"`` 标签，JSON 序列化使用 ``json:"column_name,omitempty"``
 
 ---
@@ -262,6 +284,7 @@ make coverage      # 生成覆盖率报告
 - `configs/config.yaml` 中敏感字段使用 `${ENV_NAME}` 占位符，由 `config.resolveEnvVariables()` 解析
 - JWT Secret 启动时强制校验：长度必须 ≥32，且不能包含默认弱密钥字符串
 - 主密钥（`CA_MASTER_KEY`）用于 SM4-GCM 加密私钥，丢失将导致所有加密私钥无法解密
+- **`CA_MASTER_KEY` 格式建议**：使用 64 字符 hex 字符串（如 `openssl rand -hex 32`），系统会自动识别 hex/base64。避免使用恰好是有效 base64 的 32 字符字符串，否则 `resolveMasterKey` 会将其解码为 24 字节，导致 `NewKeyStore` 长度校验失败
 
 ### HSM
 
@@ -333,7 +356,13 @@ docker build -t opengm-ca -f deployments/docker/Dockerfile .
 3. **smx509 解析限制**：
    - `github.com/emmansun/gmsm/smx509` 对中间 CA 证书解析时可能出现 SubjectDN/IssuerDN 降级，系统使用配置值作为回退。
 
-4. **无单元测试**：
+4. **数据库 Schema 兼容性**：
+   - `cert_keys` 表需包含 `updated_at` 列，否则 `KeyRepository.UpdateCertID` 会失败。旧环境请执行：
+     ```sql
+     ALTER TABLE cert_keys ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT pg_systimestamp();
+     ```
+
+5. **无单元测试**：
    - 当前没有测试文件，任何修改都应通过本地编译和手动 API 测试验证。
 
 ---

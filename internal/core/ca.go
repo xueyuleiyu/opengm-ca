@@ -11,7 +11,9 @@ import (
 	"crypto/x509"
 
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -22,6 +24,7 @@ import (
 	"time"
 
 	"github.com/emmansun/gmsm/sm2"
+	opengmcrypto "github.com/opengm-ca/opengm-ca/internal/crypto"
 	"github.com/opengm-ca/opengm-ca/internal/config"
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/rs/zerolog/log"
@@ -124,7 +127,7 @@ func (e *CAEngine) LoadFromDB(ctx context.Context, caRepo CARepository, keyEncry
 	return nil
 }
 
-// decryptKeyFile 解密或读取私钥文件
+// decryptKeyFile 解密私钥文件（禁止明文回退）
 func (e *CAEngine) decryptKeyFile(data []byte, keyEncryptor KeyEncryptor) ([]byte, error) {
 	var wrapper struct {
 		Encrypted  bool   `json:"encrypted"`
@@ -136,12 +139,11 @@ func (e *CAEngine) decryptKeyFile(data []byte, keyEncryptor KeyEncryptor) ([]byt
 	}
 
 	if err := json.Unmarshal(data, &wrapper); err != nil {
-		// 不是JSON格式，当作原始PEM返回
-		return data, nil
+		return nil, fmt.Errorf("私钥文件格式错误(必须为加密JSON): %w", err)
 	}
 
 	if !wrapper.Encrypted {
-		return []byte(wrapper.PEM), nil
+		return nil, fmt.Errorf("私钥文件未加密，禁止加载明文私钥")
 	}
 
 	if keyEncryptor == nil {
@@ -220,6 +222,10 @@ func (e *CAEngine) SaveToStorage(ctx context.Context, caRepo CARepository, keyEn
 }
 
 func (e *CAEngine) saveCAInstance(ctx context.Context, caRepo CARepository, keyEncryptor KeyEncryptor, keyDir string, instance *CAInstance, caType model.CAType, parent *CAInstance) error {
+	algorithm := ""
+	if instance.Config != nil {
+		algorithm = instance.Config.Algorithm
+	}
 	caRecord := &model.CAChain{
 		CAName:       instance.CAName,
 		CAType:       caType,
@@ -228,7 +234,7 @@ func (e *CAEngine) saveCAInstance(ctx context.Context, caRepo CARepository, keyE
 		SubjectDN:    instance.Cert.Subject.String(),
 		IssuerDN:     instance.Cert.Issuer.String(),
 		SerialNumber: fmt.Sprintf("%X", instance.Cert.SerialNumber),
-		Algorithm:    e.cfg.RootCA.Algorithm,
+		Algorithm:    algorithm,
 		KeyID:        fmt.Sprintf("ca-key-%s", instance.CAName),
 		ValidFrom:    instance.Cert.NotBefore,
 		ValidTo:      instance.Cert.NotAfter,
@@ -275,59 +281,56 @@ func (e *CAEngine) GetCA(name string) (*CAInstance, error) {
 	return ca, nil
 }
 
-// encodePrivateKeyToPEM 将私钥编码为PEM
-func encodePrivateKeyToPEM(privKey interface{}, algorithm string) (string, error) {
-	switch key := privKey.(type) {
-	case *rsa.PrivateKey:
-		data := x509.MarshalPKCS1PrivateKey(key)
-		return string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: data})), nil
-	case *ecdsa.PrivateKey:
-		data, err := x509.MarshalECPrivateKey(key)
-		if err != nil {
-			return "", err
-		}
-		return string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: data})), nil
-	case *sm2.PrivateKey:
-		// SM2私钥: 32字节D值
-		dBytes := key.D.Bytes()
-		data := make([]byte, 32)
-		copy(data[32-len(dBytes):], dBytes)
-		return string(pem.EncodeToMemory(&pem.Block{Type: "SM2 PRIVATE KEY", Bytes: data})), nil
-	default:
-		// 其他类型尝试PKCS#8
-		data, err := x509.MarshalPKCS8PrivateKey(key)
-		if err != nil {
-			return "", err
-		}
-		return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: data})), nil
+// GenerateCRL 为指定CA生成CRL（DER格式）
+func (e *CAEngine) GenerateCRL(caName string, revokedEntries []pkix.RevokedCertificate, thisUpdate, nextUpdate time.Time) ([]byte, error) {
+	ca, err := e.GetCA(caName)
+	if err != nil {
+		return nil, err
 	}
+	return ca.Cert.CreateCRL(rand.Reader, ca.Signer, revokedEntries, thisUpdate, nextUpdate)
 }
 
-// parsePrivateKeyPEM 解析PEM私钥
-func parsePrivateKeyPEM(pemData []byte, algorithm string) (interface{}, error) {
-	block, _ := pem.Decode(pemData)
-	if block == nil {
-		return nil, fmt.Errorf("私钥PEM解码失败")
-	}
-
-	switch block.Type {
-	case "RSA PRIVATE KEY":
-		return x509.ParsePKCS1PrivateKey(block.Bytes)
-	case "EC PRIVATE KEY":
-		return x509.ParseECPrivateKey(block.Bytes)
-	case "SM2 PRIVATE KEY":
-		return sm2.NewPrivateKey(block.Bytes)
-	case "PRIVATE KEY":
-		return x509.ParsePKCS8PrivateKey(block.Bytes)
-	default:
-		// 尝试SM2(兼容未标记的SM2密钥)
-		if len(block.Bytes) == 32 {
-			if pk, err := sm2.NewPrivateKey(block.Bytes); err == nil {
-				return pk, nil
+// BuildRevokedEntries 将数据库中的吊销证书记录转换为CRL条目
+func BuildRevokedEntries(certs []model.Certificate, caID int) []pkix.RevokedCertificate {
+	var entries []pkix.RevokedCertificate
+	for _, cert := range certs {
+		if cert.CAID != caID {
+			continue
+		}
+		sn := new(big.Int)
+		if _, ok := sn.SetString(cert.SerialNumber, 16); !ok {
+			sn.SetString(cert.SerialNumber, 10)
+		}
+		if sn.Sign() <= 0 {
+			continue
+		}
+		rc := pkix.RevokedCertificate{
+			SerialNumber:   sn,
+			RevocationTime: *cert.RevokedAt,
+		}
+		if cert.RevocationReason != nil {
+			reasonBytes, err := asn1.Marshal(asn1.Enumerated(*cert.RevocationReason))
+			if err == nil {
+				rc.Extensions = append(rc.Extensions, pkix.Extension{
+					Id:    asn1.ObjectIdentifier{2, 5, 29, 21},
+					Value: reasonBytes,
+				})
 			}
 		}
-		return x509.ParsePKCS8PrivateKey(block.Bytes)
+		entries = append(entries, rc)
 	}
+	return entries
+}
+
+// encodePrivateKeyToPEM 将私钥编码为PEM，统一使用PKCS8格式
+func encodePrivateKeyToPEM(privKey interface{}, algorithm string) (string, error) {
+	// 统一使用crypto包中的EncodePrivateKey函数
+	return opengmcrypto.EncodePrivateKey(privKey, algorithm)
+}
+
+// parsePrivateKeyPEM 解析PEM私钥，统一使用crypto包中的解析函数
+func parsePrivateKeyPEM(pemData []byte, algorithm string) (interface{}, error) {
+	return opengmcrypto.ParsePrivateKeyFromPEM(string(pemData))
 }
 
 // Initialize 初始化CA系统(首次部署)
@@ -419,6 +422,7 @@ func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig
 		Cert:       cert,
 		Signer:     privKey.(crypto.Signer),
 		PrivateKey: privKey,
+		Config:     &model.CAChain{Algorithm: req.Algorithm},
 	}
 
 	log.Info().Str("subject", cert.Subject.String()).Str("algorithm", req.Algorithm).
@@ -481,6 +485,7 @@ func (e *CAEngine) createIntermediateCA(ctx context.Context, parent *CAInstance,
 		Cert:       cert,
 		Signer:     privKey.(crypto.Signer),
 		PrivateKey: privKey,
+		Config:     &model.CAChain{Algorithm: req.Algorithm},
 	}
 
 	log.Info().Str("ca_name", req.CAName).Str("subject", cert.Subject.String()).
@@ -526,16 +531,30 @@ func (e *CAEngine) IssueCertificate(ctx context.Context, caName string, req *mod
 	}
 
 	certPEM := pemEncode(certBytes, "CERTIFICATE")
+	certHash := sha256.Sum256(certBytes)
+
+	pubKeyAlg := model.PubKeySM2
+	switch req.Algorithm {
+	case "RSA2048", "RSA4096":
+		pubKeyAlg = model.PubKeyRSA
+	case "EC256", "EC384":
+		pubKeyAlg = model.PubKeyEC
+	}
 
 	result := &model.Certificate{
-		CertType:     model.CertType(req.CertType),
-		SerialNumber: fmt.Sprintf("%X", cert.SerialNumber),
-		CertPEM:      certPEM,
-		SubjectDN:    cert.Subject.String(),
-		IssuerDN:     cert.Issuer.String(),
-		ValidFrom:    cert.NotBefore,
-		ValidTo:      cert.NotAfter,
-		Status:       model.CertStatusValid,
+		CAID:            ca.CAID,
+		CertType:        model.CertType(req.CertType),
+		SerialNumber:    fmt.Sprintf("%X", cert.SerialNumber),
+		SerialNumberDec: cert.SerialNumber.String(),
+		CertPEM:         certPEM,
+		CertHashSHA256:  hex.EncodeToString(certHash[:]),
+		SubjectDN:       cert.Subject.String(),
+		IssuerDN:        cert.Issuer.String(),
+		SignatureAlg:    model.SignatureAlgorithm(cert.SignatureAlgorithm.String()),
+		PublicKeyAlg:    pubKeyAlg,
+		ValidFrom:       cert.NotBefore,
+		ValidTo:         cert.NotAfter,
+		Status:          model.CertStatusValid,
 	}
 
 	log.Info().Str("serial", result.SerialNumber).Str("subject", result.SubjectDN).
@@ -598,12 +617,9 @@ func GenerateKeyID(pubKey interface{}) []byte {
 		// Fallback to standard x509 for non-SM2 keys
 		pubDER, err = x509.MarshalPKIXPublicKey(pubKey)
 		if err != nil {
-			log.Warn().Err(err).Msg("无法序列化公钥生成SubjectKeyId，使用随机值")
-			randBytes := make([]byte, 20)
-			if _, err := rand.Read(randBytes); err != nil {
-				log.Warn().Err(err).Msg("读取随机数失败")
-			}
-			return randBytes
+			// 公钥序列化失败是系统级异常，返回固定零值（调用方应检查并终止流程）
+			log.Error().Err(err).Msg("无法序列化公钥生成SubjectKeyId")
+			return make([]byte, 20)
 		}
 	}
 	hash := sha256.Sum256(pubDER)
@@ -616,8 +632,7 @@ func buildCertTemplate(req *model.CertificateRequest) (*x509.Certificate, error)
 	if err != nil {
 		return nil, fmt.Errorf("生成证书序列号失败: %w", err)
 	}
-	// TODO: 根据证书类型(SSL/AUTH/VPN)构建不同的KeyUsage和扩展
-	return &x509.Certificate{
+	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName:         req.Subject.CommonName,
@@ -625,9 +640,42 @@ func buildCertTemplate(req *model.CertificateRequest) (*x509.Certificate, error)
 			Country:            []string{req.Subject.Country},
 			OrganizationalUnit: []string{req.Subject.OrganizationalUnit},
 		},
-		NotBefore: time.Now(),
+		NotBefore: time.Now().Add(-1 * time.Hour),
 		NotAfter:  time.Now().AddDate(0, 0, req.ValidityDays),
-	}, nil
+	}
+
+	// 应用请求的 KeyUsage 和 ExtKeyUsage 扩展
+	keyUsageMap := map[string]x509.KeyUsage{
+		"digitalSignature": x509.KeyUsageDigitalSignature,
+		"nonRepudiation":   x509.KeyUsageContentCommitment,
+		"keyEncipherment":  x509.KeyUsageKeyEncipherment,
+		"dataEncipherment": x509.KeyUsageDataEncipherment,
+		"keyAgreement":     x509.KeyUsageKeyAgreement,
+		"keyCertSign":      x509.KeyUsageCertSign,
+		"cRLSign":          x509.KeyUsageCRLSign,
+	}
+	for _, ku := range req.Extensions.KeyUsage {
+		if v, ok := keyUsageMap[ku]; ok {
+			template.KeyUsage |= v
+		}
+	}
+	extKeyUsageMap := map[string]x509.ExtKeyUsage{
+		"serverAuth":      x509.ExtKeyUsageServerAuth,
+		"clientAuth":      x509.ExtKeyUsageClientAuth,
+		"codeSigning":     x509.ExtKeyUsageCodeSigning,
+		"emailProtection": x509.ExtKeyUsageEmailProtection,
+		"ipsecEndSystem":  x509.ExtKeyUsageIPSECEndSystem,
+		"ipsecTunnel":     x509.ExtKeyUsageIPSECTunnel,
+		"timeStamping":    x509.ExtKeyUsageTimeStamping,
+		"ocspSigning":     x509.ExtKeyUsageOCSPSigning,
+	}
+	for _, eku := range req.Extensions.ExtKeyUsage {
+		if v, ok := extKeyUsageMap[eku]; ok {
+			template.ExtKeyUsage = append(template.ExtKeyUsage, v)
+		}
+	}
+
+	return template, nil
 }
 
 // pemEncode PEM编码

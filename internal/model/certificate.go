@@ -128,7 +128,7 @@ type SubjectAltName struct {
 
 // CertificateRequest 证书申请请求
 type CertificateRequest struct {
-	CertType      string         `json:"cert_type" validate:"required,oneof=SSL AUTH VPN"`
+	CertType      string         `json:"cert_type" validate:"required,oneof=SSL AUTH VPN_SIGN VPN_ENC"`
 	Algorithm     string         `json:"algorithm" validate:"required,oneof=SM2 RSA2048 RSA4096 EC256 EC384"`
 	Subject       SubjectInfo    `json:"subject" validate:"required"`
 	ValidityDays  int            `json:"validity_days" validate:"required,min=1,max=3650"`

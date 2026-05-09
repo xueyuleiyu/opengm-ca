@@ -220,14 +220,27 @@ cd /opt/opengm-ca
 nohup ./ca-server -config ./configs/config.yaml > /var/log/opengm-ca.log 2>&1 &
 ```
 
-### 3.9 插入默认管理员
+### 3.9 初始化三员管理员
 
-由于 openGauss 不支持 `ON CONFLICT`，`runDBMigration` 中的默认管理员插入失败，需手动执行：
+系统采用**等保 2.0 三员分离**模型（SYS_ADMIN / SEC_ADMIN / AUDITOR），不再使用单一的 `admin` 账号。首次部署时，通过 API 初始化三员管理员：
 
 ```bash
-su - omm -c "gsql -d opengm_ca -U ca_admin -W \${DB_PASSWORD} -p 5432 -c \"INSERT INTO operators (username, password_hash, real_name, email, role, created_by) SELECT 'admin', '\$2a\$10\$bdOlM25da0sHi/fsMiOkVeXtipThOPzc0ifnc5TZNm9Dx8emDeUw.', '系统管理员', 'admin@localhost', 'SUPER_ADMIN', 1 WHERE NOT EXISTS (SELECT 1 FROM operators WHERE username = 'admin');\""
-# 默认管理员密码已重置，请参考 PASSWORD_RESET.md
+# 1. 先以 SUPER_ADMIN 登录（如有）或检查 operators 表中是否已有初始账号
+# 2. 调用 init-admins 接口（需要 USER_MANAGE 权限）
+curl -X POST http://192.168.24.132:8443/api/v1/auth/init-admins \
+  -H "Authorization: Bearer <SUPER_ADMIN_TOKEN>"
 ```
+
+**密码来源优先级**：
+1. 环境变量（推荐）：
+   ```bash
+   export CA_DEFAULT_SYS_ADMIN_PASSWORD="YourStrongSysPass123!"
+   export CA_DEFAULT_SEC_ADMIN_PASSWORD="YourStrongSecPass456!"
+   export CA_DEFAULT_AUDIT_ADMIN_PASSWORD="YourStrongAudit789!"
+   ```
+2. 若未设置环境变量，则运行时通过 `crypto/rand` 生成 24 字节随机密码（Base64 编码），**熵源失败会直接报错，不会回退到时间戳**。
+
+> ⚠️ **安全提示**：初始化完成后，务必立即修改三员管理员密码，并删除环境变量中的明文密码。
 
 ---
 
@@ -293,9 +306,10 @@ auth:
 | `JWT_SECRET` | JWT 签名密钥 | **必须设置**，建议 `openssl rand -hex 32`，长度≥32 |
 | `CA_MASTER_KEY` | 私钥加密主密钥 | **必须设置**，建议 `openssl rand -hex 32` |
 | `CA_HSM_PASSWORD` | HSM 密码 | **必须设置** |
-| `CA_DEFAULT_SYS_ADMIN_PASSWORD` | 系统管理员默认密码 | 首次初始化前设置 |
-| `CA_DEFAULT_SEC_ADMIN_PASSWORD` | 安全管理员默认密码 | 首次初始化前设置 |
-| `CA_DEFAULT_AUDIT_ADMIN_PASSWORD` | 审计管理员默认密码 | 首次初始化前设置 |
+| `CA_DEFAULT_SYS_ADMIN_PASSWORD` | 系统管理员（SYS_ADMIN）初始密码 | 首次 `init-admins` 前设置 |
+| `CA_DEFAULT_SEC_ADMIN_PASSWORD` | 安全管理员（SEC_ADMIN）初始密码 | 首次 `init-admins` 前设置 |
+| `CA_DEFAULT_AUDIT_ADMIN_PASSWORD` | 审计管理员（AUDITOR）初始密码 | 首次 `init-admins` 前设置 |
+| `CA_INITIAL_ADMIN_PASSWORD` | 首个 SUPER_ADMIN 密码（如需要手动创建） | 首次初始化前设置 |
 
 ---
 
@@ -388,14 +402,64 @@ nohup ./ca-server -config ./configs/config.yaml > /var/log/opengm-ca.log 2>&1 &
 
 ---
 
-## 7. 已知问题与限制
+## 7. 功能测试记录（2026-05-09）
+
+| 功能模块 | 测试项 | 结果 |
+|----------|--------|------|
+| 认证 | admin/sec_admin/audit_admin 登录 | ✅ 通过 |
+| 认证 | 5 次错误密码后账户锁定 30 分钟 | ✅ 通过 |
+| 认证 | JWT 实时状态校验（锁定后 token 失效） | ✅ 通过 |
+| 证书签发 | SM2 SSL 证书（服务器生成密钥） | ✅ 通过 |
+| 证书签发 | RSA2048 SSL 证书（服务器生成密钥） | ✅ 通过 |
+| 证书签发 | VPN 双证书（VPN_SIGN + VPN_ENC） | ✅ 通过 |
+| 证书管理 | 吊销证书 + 即时 CRL 更新 | ✅ 通过 |
+| CRL/OCSP | CRL 下载（SSL-CA / VPN-CA / AUTH-CA） | ✅ 通过 |
+| HSM | 生成 / 列表 / 删除 SM2 密钥 | ✅ 通过 |
+| 操作员 | 创建 / 更新 / 禁用 / 删除 | ✅ 通过 |
+| 操作员 | 弱密码拒绝（<8 位 / 无复杂度） | ✅ 通过 |
+| 操作员 | 禁止创建 SUPER_ADMIN | ✅ 通过 |
+| 操作员 | 禁止删除当前登录用户 | ✅ 通过 |
+| 审计 | 审计日志记录 + 哈希链 | ✅ 通过 |
+| 三员 | InitDefaultAdmins 重复初始化阻止 | ✅ 通过 |
+| 权限 | 角色权限隔离（等保 2.0） | ✅ 通过 |
+
+### 测试中发现并修复的问题
+
+1. **双证书模式未实际调用协调器** (`internal/service/enrollment.go`)
+   - 原因：`EnrollCertificate` 未处理 `DualCertMode`
+   - 修复：在 `EnrollmentService` 中集成 `DualCertCoordinator`，双证书请求直接委托签发
+
+2. **双证书保存缺少必填字段** (`internal/core/dual_cert.go`)
+   - 原因：`IssueDualCertificates` 返回的证书模型缺少 `CertHashSHA256`、`CAID`、`IssuedBy`
+   - 修复：持久化前补充所有数据库非空字段
+
+3. **CA 初始化 panic（nil Config）** (`internal/core/ca.go`)
+   - 原因：`createRootCA`/`createIntermediateCA` 未设置 `instance.Config`，`saveCAInstance` 访问 `instance.Config.Algorithm` 时 panic
+   - 修复：创建 CA 实例时填充 `Config`，`saveCAInstance` 增加 nil 保护
+
+4. **审计日志 actor 为空导致写入失败** (`internal/service/audit.go`)
+   - 原因：公开接口（如 CRL）无认证信息，`actor` 为空字符串被 ORM 映射为 NULL
+   - 修复：`AuditService.Log` 在 `actor == ""` 时回退为 `"SYSTEM"`
+
+5. **cert_keys 表缺少 updated_at 列**
+   - 原因：`KeyRepository.UpdateCertID` 尝试更新不存在的列
+   - 修复：`ALTER TABLE cert_keys ADD COLUMN updated_at`
+
+6. **主密钥 base64 解码陷阱** (`internal/crypto/keystore.go`)
+   - 原因：`resolveMasterKey` 对 32 字符的有效 base64 字符串会解码为 24 字节，导致 `NewKeyStore` 校验失败
+   - 规避：**建议使用 64 字符 hex 格式**（如 `openssl rand -hex 32`），避免使用恰好是有效 base64 的 32 字符字符串
+
+## 8. 已知问题与限制
 
 | 问题 | 说明 | 影响 |
 |------|------|------|
 | **主密钥未设置** | `CA_MASTER_KEY` 环境变量未配置 | 私钥加密/导出功能不可用 |
 | **TLS 未启用** | 配置文件 `tls.enabled: false` | 服务使用明文 HTTP，生产环境必须开启 |
-| **ON CONFLICT 不支持** | openGauss 语法差异 | 系统配置初始化需手动执行 |
+| **ON CONFLICT 兼容性** | openGauss 语法差异 | `runDBMigration` 已改用 Bun ORM 方式，若仍失败需手动补录 |
 | **OCSP Responder 临时证书** | 当前使用自签名 EC P-256 证书签名 OCSP 响应 | 生产环境应使用由 CA 正式签名的 OCSP Responder 证书 |
+| **MFA 未实现** | TOTP 多因素认证未接入 | 启用 MFA 的用户目前无法登录（返回 `MFA_NOT_IMPLEMENTED`） |
+| **RateLimit 内存泄漏** | 限流器使用 map 存储但无过期清理 | 长期运行内存可能缓慢增长，建议定期重启或后续接入 Redis |
+| **SEC_ADMIN 无法重置他人密码** | `/operators/:id/password` 路由要求 `USER_MANAGE`，但 SEC_ADMIN 仅有 `HSM_MANAGE` 等权限 | 安全管理员无法通过 API 重置他人密码（Handler 内部逻辑已允许，被路由层拦截） |
 
 ---
 
@@ -404,7 +468,12 @@ nohup ./ca-server -config ./configs/config.yaml > /var/log/opengm-ca.log 2>&1 &
 1. **启用 TLS**: 准备服务器证书和私钥，修改 `configs/config.yaml` 中 `tls.enabled: true`。注意：服务不再自动生成自签名证书，证书缺失会直接报错。
 2. **配置主密钥**: `export CA_MASTER_KEY=$(openssl rand -hex 32)` 后重启服务
 3. **配置 HSM 密码**: `export CA_HSM_PASSWORD=<强密码>`
-4. **配置 JWT Secret**: `export CA_JWT_SECRET=$(openssl rand -hex 32)`
+4. **配置 JWT Secret**: `export CA_JWT_SECRET=$(openssl rand -hex 32)`（启动时强制校验长度 ≥32，拒绝默认弱密钥）
 5. **配置默认管理员密码**: 初始化前设置 `CA_DEFAULT_*_ADMIN_PASSWORD` 环境变量
 6. **系统配置补全**: 手动执行 `system_configs` 表的数据插入
 7. **备份策略**: 定期备份 `/opt/software/openGauss/data/single_node` 和 `/opt/opengm-ca/configs`
+8. **安全加固建议**:
+   - 吊销证书后立即验证 CRL 是否已更新（`GET /api/v1/crl/:ca_name`）
+   - 定期执行审计哈希链验证（`GET /api/v1/audit/verify`）
+   - 私钥导出为高敏操作，建议限制为双人审批
+   - 设置 `CA_MASTER_KEY` 时支持 hex（64字符）或 base64 编码，系统自动识别

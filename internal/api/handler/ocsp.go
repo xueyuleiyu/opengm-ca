@@ -178,7 +178,7 @@ func (h *OCSPHandler) HandleRequest(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.queryStatus(ctx, serialNumber, caName)
+	cert, resp, err := h.queryStatus(ctx, serialNumber, caName)
 	if err != nil {
 		if isDERRequest {
 			c.Data(http.StatusInternalServerError, "application/ocsp-response", buildOCSPError(int(ocsp.TryLater)))
@@ -203,7 +203,16 @@ func (h *OCSPHandler) HandleRequest(c *gin.Context) {
 				ocspResp.RevocationReason = resp.Reason
 			}
 		}
-		derResp, err := ocsp.CreateResponse(ocspResponderCert, ocspResponderCert, ocspResp, ocspResponderKey)
+		// issuer必须是签发被查询证书的CA证书，responder是OCSP Responder证书
+		issuerCert := ocspResponderCert
+		if cert != nil && cert.CAID > 0 {
+			if ca, caErr := h.caRepo.GetByID(ctx, cert.CAID); caErr == nil {
+				if parsed, parseErr := parseCertificatePEM([]byte(ca.CertPEM)); parseErr == nil {
+					issuerCert = parsed
+				}
+			}
+		}
+		derResp, err := ocsp.CreateResponse(issuerCert, ocspResponderCert, ocspResp, ocspResponderKey)
 		if err != nil {
 			c.Data(http.StatusInternalServerError, "application/ocsp-response", buildOCSPError(int(ocsp.InternalError)))
 			return
@@ -223,7 +232,7 @@ func buildOCSPError(status int) []byte {
 	return seqBytes
 }
 
-func (h *OCSPHandler) queryStatus(ctx context.Context, serialNumber, caName string) (*ocspJSONResponse, error) {
+func (h *OCSPHandler) queryStatus(ctx context.Context, serialNumber, caName string) (*model.Certificate, *ocspJSONResponse, error) {
 	resp := &ocspJSONResponse{
 		SerialNumber: serialNumber,
 		Status:       "UNKNOWN",
@@ -246,13 +255,13 @@ func (h *OCSPHandler) queryStatus(ctx context.Context, serialNumber, caName stri
 	if caID > 0 {
 		cert, err = h.certRepo.GetBySerialNumber(ctx, caID, serialNumber)
 	} else {
-		certs, _, err := h.certRepo.List(ctx, map[string]interface{}{"serial_number": serialNumber}, 0, 10)
-		if err == nil && len(certs) > 0 {
+		certs, _, listErr := h.certRepo.List(ctx, map[string]interface{}{"serial_number": serialNumber}, 0, 10)
+		if listErr == nil && len(certs) > 0 {
 			cert = &certs[0]
 		}
 	}
 	if err != nil || cert == nil {
-		return resp, nil
+		return nil, resp, nil
 	}
 
 	resp.IssuerDN = cert.IssuerDN
@@ -285,7 +294,7 @@ func (h *OCSPHandler) queryStatus(ctx context.Context, serialNumber, caName stri
 		resp.StatusCode = ocsp.Unknown
 	}
 
-	return resp, nil
+	return cert, resp, nil
 }
 
 type ocspJSONRequest struct {

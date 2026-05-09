@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -8,6 +10,7 @@ import (
 	"github.com/opengm-ca/opengm-ca/internal/api/middleware"
 	"github.com/opengm-ca/opengm-ca/internal/config"
 	"github.com/opengm-ca/opengm-ca/internal/metrics"
+	"github.com/opengm-ca/opengm-ca/internal/repository"
 	"github.com/opengm-ca/opengm-ca/internal/service"
 )
 
@@ -23,6 +26,7 @@ type Router struct {
 	hsmHandler      *handler.HSMHandler
 	crlHandler      *handler.CRLHandler
 	ocspHandler     *handler.OCSPHandler
+	operatorRepo    *repository.OperatorRepository
 }
 
 // NewRouter 创建路由
@@ -37,6 +41,7 @@ func NewRouter(
 	hsmHandler *handler.HSMHandler,
 	crlHandler *handler.CRLHandler,
 	ocspHandler *handler.OCSPHandler,
+	operatorRepo *repository.OperatorRepository,
 ) *Router {
 	return &Router{
 		cfg:             cfg,
@@ -49,6 +54,7 @@ func NewRouter(
 		hsmHandler:      hsmHandler,
 		crlHandler:      crlHandler,
 		ocspHandler:     ocspHandler,
+		operatorRepo:    operatorRepo,
 	}
 }
 
@@ -69,13 +75,24 @@ func (r *Router) Register(engine *gin.Engine) {
 		{
 			auth.POST("/login", r.authHandler.Login)
 			auth.POST("/refresh", r.authHandler.RefreshToken)
-			auth.POST("/init-admins", r.authHandler.InitDefaultAdmins)
 		}
 
 		// 需要认证的路由
 		authorized := v1.Group("")
-		authorized.Use(middleware.JWTMiddleware(&r.cfg.Auth))
+		authorized.Use(middleware.JWTMiddleware(&r.cfg.Auth, func(userID string) (bool, error) {
+			id, err := strconv.Atoi(userID)
+			if err != nil {
+				return false, err
+			}
+			op, err := r.operatorRepo.GetByID(context.Background(), id)
+			if err != nil {
+				return false, err
+			}
+			return op.IsActive && !op.IsLocked(), nil
+		}))
 		{
+			// 初始化管理员（仅限已认证且具有用户管理权限的操作员）
+			authorized.POST("/auth/init-admins", middleware.RequirePermission("USER_MANAGE"), r.authHandler.InitDefaultAdmins)
 			// 系统状态
 			authorized.GET("/system/status", r.systemHandler.Status)
 			authorized.GET("/system/expiring-certs", middleware.RequirePermission("CERT_READ"), r.systemHandler.ExpiringCerts)

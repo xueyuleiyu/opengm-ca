@@ -2,9 +2,6 @@ package handler
 
 import (
 	"crypto/rand"
-	"crypto/x509/pkix"
-	"encoding/asn1"
-	"math/big"
 	"net/http"
 	"time"
 
@@ -16,17 +13,23 @@ import (
 	"github.com/opengm-ca/opengm-ca/internal/service"
 )
 
+const defaultCRLNextUpdateHours = 48
+
 // CRLHandler CRL管理Handler
 type CRLHandler struct {
-	caEngine *core.CAEngine
-	certRepo *repository.CertificateRepository
-	caRepo   *repository.CAChainRepository
-	auditSvc *service.AuditService
+	caEngine        *core.CAEngine
+	certRepo        *repository.CertificateRepository
+	caRepo          *repository.CAChainRepository
+	auditSvc        *service.AuditService
+	nextUpdateHours int
 }
 
 // NewCRLHandler 创建CRL Handler
-func NewCRLHandler(caEngine *core.CAEngine, certRepo *repository.CertificateRepository, caRepo *repository.CAChainRepository, auditSvc *service.AuditService) *CRLHandler {
-	return &CRLHandler{caEngine: caEngine, certRepo: certRepo, caRepo: caRepo, auditSvc: auditSvc}
+func NewCRLHandler(caEngine *core.CAEngine, certRepo *repository.CertificateRepository, caRepo *repository.CAChainRepository, auditSvc *service.AuditService, nextUpdateHours int) *CRLHandler {
+	if nextUpdateHours <= 0 {
+		nextUpdateHours = defaultCRLNextUpdateHours
+	}
+	return &CRLHandler{caEngine: caEngine, certRepo: certRepo, caRepo: caRepo, auditSvc: auditSvc, nextUpdateHours: nextUpdateHours}
 }
 
 // GenerateCRL 生成并返回DER编码的CRL (RFC 5280)
@@ -57,7 +60,7 @@ func (h *CRLHandler) GenerateCRL(c *gin.Context) {
 	filters := map[string]interface{}{
 		"status": string(model.CertStatusRevoked),
 	}
-	revokedCerts, _, err := h.certRepo.List(ctx, filters, 0, 10000)
+	revokedCerts, _, err := h.certRepo.List(ctx, filters, 0, 0)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "查询吊销证书失败: " + err.Error()})
 		return
@@ -67,36 +70,10 @@ func (h *CRLHandler) GenerateCRL(c *gin.Context) {
 	metrics.IncCRLRequests()
 
 	// 构建CRL条目
-	var revokedEntries []pkix.RevokedCertificate
-	for _, cert := range revokedCerts {
-		if cert.CAID != ca.ID {
-			continue
-		}
-		sn := new(big.Int)
-		if _, ok := sn.SetString(cert.SerialNumber, 16); !ok {
-			sn.SetString(cert.SerialNumber, 10)
-		}
-		if sn.Sign() <= 0 {
-			continue
-		}
-		rc := pkix.RevokedCertificate{
-			SerialNumber:   sn,
-			RevocationTime: *cert.RevokedAt,
-		}
-		if cert.RevocationReason != nil {
-			reasonBytes, err := asn1.Marshal(asn1.Enumerated(*cert.RevocationReason))
-			if err == nil {
-				rc.Extensions = append(rc.Extensions, pkix.Extension{
-					Id:    asn1.ObjectIdentifier{2, 5, 29, 21},
-					Value: reasonBytes,
-				})
-			}
-		}
-		revokedEntries = append(revokedEntries, rc)
-	}
+	revokedEntries := core.BuildRevokedEntries(revokedCerts, ca.ID)
 
 	thisUpdate := time.Now()
-	nextUpdate := thisUpdate.Add(48 * time.Hour)
+	nextUpdate := thisUpdate.Add(time.Duration(h.nextUpdateHours) * time.Hour)
 
 	crlBytes, err := caInstance.Cert.CreateCRL(rand.Reader, caInstance.Signer, revokedEntries, thisUpdate, nextUpdate)
 	if err != nil {

@@ -60,17 +60,23 @@ func (r *KeyRepository) List(ctx context.Context, filters map[string]interface{}
 	return keys, count, nil
 }
 
-// IncrementExportCount 增加导出计数
-func (r *KeyRepository) IncrementExportCount(ctx context.Context, keyID string) error {
-	_, err := r.db.NewUpdate().Model((*model.CertKey)(nil)).
+// IncrementExportCount 原子性增加导出计数，仅在未达到上限时成功
+func (r *KeyRepository) IncrementExportCount(ctx context.Context, keyID string) (bool, error) {
+	res, err := r.db.NewUpdate().Model((*model.CertKey)(nil)).
 		Set("export_count = export_count + 1").
 		Set("last_export_at = NOW()").
 		Where("key_id = ?", keyID).
+		Where("exportable = true").
+		Where("max_exports = 0 OR export_count < max_exports").
 		Exec(ctx)
-	return err
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, _ := res.RowsAffected()
+	return rowsAffected > 0, nil
 }
 
-// GetDailyExportCount 获取当日导出次数（基于 last_export_at 当天的不同密钥数量）
+// GetDailyExportCount 获取当日被导出过的不同密钥数量
 func (r *KeyRepository) GetDailyExportCount(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.NewSelect().
@@ -79,4 +85,14 @@ func (r *KeyRepository) GetDailyExportCount(ctx context.Context) (int, error) {
 		Where("DATE(last_export_at) = CURRENT_DATE").
 		Scan(ctx, &count)
 	return count, err
+}
+
+// UpdateCertID 更新密钥关联的证书ID
+func (r *KeyRepository) UpdateCertID(ctx context.Context, keyID string, certID int64) error {
+	_, err := r.db.NewUpdate().Model((*model.CertKey)(nil)).
+		Set("cert_id = ?", certID).
+		Set("updated_at = NOW()").
+		Where("key_id = ?", keyID).
+		Exec(ctx)
+	return err
 }

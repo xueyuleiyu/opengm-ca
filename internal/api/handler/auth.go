@@ -35,19 +35,9 @@ func NewAuthHandler(cfg *config.AuthConfig, operatorRepo *repository.OperatorRep
 	}
 }
 
-// getRolePermissions 根据角色获取默认权限列表
+// getRolePermissions 根据角色获取默认权限列表（复用 model 层定义，避免重复）
 func getRolePermissions(role model.OperatorRole) []string {
-	switch role {
-	case model.RoleSysAdmin:
-		return []string{"SYSTEM_CONFIG", "USER_MANAGE", "CERT_READ", "AUDIT_READ"}
-	case model.RoleSecAdmin:
-		return []string{"CERT_ISSUE", "CERT_REVOKE", "CERT_RENEW", "CA_MANAGE", "CRL_GENERATE", "OCSP_MANAGE", "CERT_POLICY_MANAGE", "KEY_MANAGE", "KEY_EXPORT", "HSM_MANAGE", "CERT_READ"}
-	case model.RoleAuditor:
-		return []string{"AUDIT_READ", "AUDIT_VERIFY", "CERT_READ"}
-	case model.RoleSuperAdmin:
-		return []string{"*"}
-	}
-	return []string{}
+	return model.GetRolePermissions(role)
 }
 
 // dummyBcryptHash 用于用户不存在时的恒定时间比较（缓解时序攻击）
@@ -79,13 +69,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// 验证密码
 	if err := bcrypt.CompareHashAndPassword([]byte(op.PasswordHash), []byte(req.Password)); err != nil {
 		ctx := c.Request.Context()
-		if incErr := h.operatorRepo.IncrementLoginFail(ctx, op.ID); incErr != nil {
+		failCount, incErr := h.operatorRepo.IncrementLoginFail(ctx, op.ID)
+		if incErr != nil {
 			log.Warn().Err(incErr).Int("operator_id", op.ID).Msg("增加登录失败计数失败")
 		}
-		// 检查是否需要锁定账户
+		// 检查是否需要锁定账户（使用原子递增后的最新值）
 		const maxLoginFail = 5
 		const lockDuration = 30 * time.Minute
-		if op.LoginFailCount+1 >= maxLoginFail {
+		if failCount >= maxLoginFail {
 			lockUntil := time.Now().Add(lockDuration)
 			if lockErr := h.operatorRepo.LockAccount(ctx, op.ID, lockUntil); lockErr != nil {
 				log.Warn().Err(lockErr).Int("operator_id", op.ID).Msg("账户锁定失败")
@@ -93,7 +84,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 				log.Warn().Int("operator_id", op.ID).Time("locked_until", lockUntil).Msg("账户因多次登录失败被锁定")
 				if h.auditSvc != nil {
 					h.auditSvc.Log(ctx, model.EventAdminLogin, model.SeverityCritical, req.Username, c.ClientIP(), "OPERATOR", strconv.Itoa(op.ID),
-						"账户因多次登录失败被锁定", map[string]interface{}{"username": req.Username, "fail_count": op.LoginFailCount + 1}, model.ResultDenied, "")
+						"账户因多次登录失败被锁定", map[string]interface{}{"username": req.Username, "fail_count": failCount}, model.ResultDenied, "")
 				}
 			}
 		}
@@ -118,20 +109,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	// 生成权限列表（合并角色默认权限 + 自定义权限）
-	perms := getRolePermissions(op.Role)
-	if len(op.Permissions) > 0 {
-		permSet := make(map[string]bool)
-		for _, p := range perms {
-			permSet[p] = true
-		}
-		for _, p := range op.Permissions {
-			permSet[p] = true
-		}
-		perms = make([]string, 0, len(permSet))
-		for p := range permSet {
-			perms = append(perms, p)
-		}
-	}
+	perms := mergePermissions(getRolePermissions(op.Role), op.Permissions)
 
 	// 生成JWT
 	token, err := middleware.GenerateJWT(h.cfg, strconv.Itoa(op.ID), op.Username, string(op.Role), perms)
@@ -162,7 +140,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 				"username":    op.Username,
 				"real_name":   op.RealName,
 				"role":        op.Role,
-				"permissions": op.Permissions,
+				"permissions": perms,
 			},
 		},
 	})
@@ -176,8 +154,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 // InitDefaultAdmins 初始化三员管理员（允许补充创建缺失的角色）
 func (h *AuthHandler) InitDefaultAdmins(c *gin.Context) {
 	ctx := c.Request.Context()
-	actor, _ := c.Get("username")
-	actorStr, _ := actor.(string)
+	actorStr := c.GetString("username")
 
 	ops, err := h.operatorRepo.ListAll(ctx)
 	if err != nil {
@@ -200,6 +177,23 @@ func (h *AuthHandler) InitDefaultAdmins(c *gin.Context) {
 		return
 	}
 
+	// 生成管理员密码
+	sysPass, err := getEnvOrRandomPassword("CA_DEFAULT_SYS_ADMIN_PASSWORD")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "生成系统管理员密码失败: " + err.Error()})
+		return
+	}
+	secPass, err := getEnvOrRandomPassword("CA_DEFAULT_SEC_ADMIN_PASSWORD")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "生成安全管理员密码失败: " + err.Error()})
+		return
+	}
+	auditPass, err := getEnvOrRandomPassword("CA_DEFAULT_AUDIT_ADMIN_PASSWORD")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "生成审计管理员密码失败: " + err.Error()})
+		return
+	}
+
 	// 创建缺失的管理员
 	admins := []struct {
 		username string
@@ -209,9 +203,9 @@ func (h *AuthHandler) InitDefaultAdmins(c *gin.Context) {
 		role     model.OperatorRole
 		skip     bool
 	}{
-		{"sys_admin", getEnvOrRandomPassword("CA_DEFAULT_SYS_ADMIN_PASSWORD"), "系统管理员", "sys_admin@localhost", model.RoleSysAdmin, false},
-		{"sec_admin", getEnvOrRandomPassword("CA_DEFAULT_SEC_ADMIN_PASSWORD"), "安全管理员", "sec_admin@localhost", model.RoleSecAdmin, hasSecAdmin},
-		{"audit_admin", getEnvOrRandomPassword("CA_DEFAULT_AUDIT_ADMIN_PASSWORD"), "审计管理员", "audit_admin@localhost", model.RoleAuditor, hasAuditAdmin},
+		{"sys_admin", sysPass, "系统管理员", "sys_admin@localhost", model.RoleSysAdmin, false},
+		{"sec_admin", secPass, "安全管理员", "sec_admin@localhost", model.RoleSecAdmin, hasSecAdmin},
+		{"audit_admin", auditPass, "审计管理员", "audit_admin@localhost", model.RoleAuditor, hasAuditAdmin},
 	}
 
 	created := 0
@@ -243,7 +237,7 @@ func (h *AuthHandler) InitDefaultAdmins(c *gin.Context) {
 			Email:        a.email,
 			Role:         a.role,
 			IsActive:     true,
-			CreatedBy:    func() *int { v := 1; return &v }(),
+			CreatedBy:    intPtr(1),
 		}
 		if err := h.operatorRepo.Create(ctx, op); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL_ERROR", "message": "创建管理员 " + a.username + " 失败: " + err.Error()})
@@ -265,34 +259,54 @@ func validatePasswordStrength(password string) error {
 	if len(password) < 8 {
 		return fmt.Errorf("密码长度至少8位")
 	}
-	hasUpper, hasLower, hasDigit, hasSpecial := false, false, false, false
+	var mask uint8
 	for _, ch := range password {
 		switch {
 		case ch >= 'A' && ch <= 'Z':
-			hasUpper = true
+			mask |= 1
 		case ch >= 'a' && ch <= 'z':
-			hasLower = true
+			mask |= 2
 		case ch >= '0' && ch <= '9':
-			hasDigit = true
+			mask |= 4
 		default:
-			hasSpecial = true
+			mask |= 8
 		}
 	}
-	if !hasUpper || !hasLower || !hasDigit || !hasSpecial {
+	if mask != 15 {
 		return fmt.Errorf("密码必须包含大小写字母、数字和特殊字符")
 	}
 	return nil
 }
 
+func mergePermissions(base, extra []string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	permSet := make(map[string]struct{}, len(base)+len(extra))
+	for _, p := range base {
+		permSet[p] = struct{}{}
+	}
+	for _, p := range extra {
+		permSet[p] = struct{}{}
+	}
+	perms := make([]string, 0, len(permSet))
+	for p := range permSet {
+		perms = append(perms, p)
+	}
+	return perms
+}
+
+func intPtr(v int) *int { return &v }
+
 // getEnvOrRandomPassword 从环境变量读取密码，未设置则生成随机密码
-func getEnvOrRandomPassword(envKey string) string {
+func getEnvOrRandomPassword(envKey string) (string, error) {
 	if pw := os.Getenv(envKey); pw != "" {
-		return pw
+		return pw, nil
 	}
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
-		// 熵源失败时使用时间戳派生（极罕见）
-		return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(time.Now().UnixNano(), 10)))
+		// 熵源失败时直接返回错误，禁止回退到可预测的时间戳
+		return "", fmt.Errorf("生成随机密码失败(熵源错误): %w", err)
 	}
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString(b), nil
 }

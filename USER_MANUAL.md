@@ -42,16 +42,20 @@ Base URL: http://192.168.24.132:8443
 API Prefix: /api/v1
 ```
 
-### 2.2 默认管理员账号
+### 2.2 三员管理员账号（等保 2.0）
 
-| 字段 | 值 |
-|------|-----|
-| 用户名 | `admin` |
-| 密码 | *已重置，请参考 PASSWORD_RESET.md* |
-| 角色 | `SUPER_ADMIN` |
-| 权限 | 全部权限 |
+系统采用三员分离模型，通过 `/api/v1/auth/init-admins` 接口初始化：
 
-> ⚠️ **安全提示**: 首次登录后请立即修改默认密码！
+| 角色 | 用户名示例 | 职责 | 初始密码来源 |
+|------|-----------|------|-------------|
+| `SYS_ADMIN` | `sys_admin` | 系统配置、用户管理 | `CA_DEFAULT_SYS_ADMIN_PASSWORD` 环境变量，或运行时随机生成 |
+| `SEC_ADMIN` | `sec_admin` | 证书签发/吊销、密钥管理、HSM | `CA_DEFAULT_SEC_ADMIN_PASSWORD` 环境变量，或运行时随机生成 |
+| `AUDITOR` | `audit_admin` | 审计查看、哈希链验证（只读） | `CA_DEFAULT_AUDIT_ADMIN_PASSWORD` 环境变量，或运行时随机生成 |
+
+> ⚠️ **安全提示**: 
+> - 初始化完成后务必立即修改所有管理员密码
+> - 建议在生产环境预先设置 `CA_DEFAULT_*_ADMIN_PASSWORD` 环境变量，而非使用随机密码
+> - `init-admins` 接口需要已登录且拥有 `USER_MANAGE` 权限
 
 ---
 
@@ -114,19 +118,20 @@ curl -s http://192.168.24.132:8443/api/v1/system/status \
 | **健康** | `/health` | GET | 公开 | 服务状态 |
 | **认证** | `/api/v1/auth/login` | POST | 公开 | 用户登录 |
 | **认证** | `/api/v1/auth/refresh` | POST | 公开 | 刷新 Token |
+| **认证** | `/api/v1/auth/init-admins` | POST | USER_MANAGE | 初始化三员管理员（需审批） |
 | **系统** | `/api/v1/system/status` | GET | 需登录 | 系统状态 |
-| **证书** | `/api/v1/certificates` | GET | 需登录 | 证书列表 (page_size ≤ 100) |
-| **证书** | `/api/v1/certificates/:id` | GET | 需登录 | 证书详情 |
-| **证书** | `/api/v1/certificates/enroll` | POST | 需登录 | 申请证书 |
-| **证书** | `/api/v1/certificates/:id/revoke` | POST | CERT_REVOKE | 吊销证书 |
-| **证书** | `/api/v1/certificates/:id/renew` | POST | 需登录 | 续期证书 |
-| **密钥** | `/api/v1/keys` | GET | 需登录 | 密钥列表 |
-| **密钥** | `/api/v1/keys/:id/export` | POST | KEY_EXPORT | 导出私钥 |
+| **证书** | `/api/v1/certificates` | GET | CERT_READ | 证书列表 (page_size ≤ 100) |
+| **证书** | `/api/v1/certificates/:id` | GET | CERT_READ | 证书详情 |
+| **证书** | `/api/v1/certificates/enroll` | POST | CERT_ISSUE | 申请证书 |
+| **证书** | `/api/v1/certificates/:id/revoke` | POST | CERT_REVOKE | 吊销证书（成功后自动更新 CRL） |
+| **证书** | `/api/v1/certificates/:id/renew` | POST | CERT_RENEW | 续期证书 |
+| **密钥** | `/api/v1/keys` | GET | KEY_MANAGE | 密钥列表 |
+| **密钥** | `/api/v1/keys/:id/export` | POST | KEY_EXPORT | 导出私钥（原子计数限流） |
 | **审计** | `/api/v1/audit/logs` | GET | AUDIT_READ | 审计日志 |
 | **审计** | `/api/v1/audit/verify` | GET | AUDIT_VERIFY | 验证哈希链 |
 | **CRL** | `/api/v1/crl/:ca_name` | GET | 公开 | 下载 CRL (DER 格式) |
 | **OCSP** | `/api/v1/ocsp` | POST | 公开 | OCSP 查询 (支持 DER/JSON) |
-| **Metrics** | `/api/v1/metrics` | GET | 需登录 | Prometheus 指标 |
+| **Metrics** | `/api/v1/metrics` | GET | 公开 | Prometheus 指标 |
 
 ### 4.2 健康检查
 
@@ -217,6 +222,8 @@ curl -X POST "http://192.168.24.132:8443/api/v1/certificates/123/revoke" \
   }'
 ```
 
+> **注意**: 吊销成功后系统会**自动重新生成并保存 CRL**，无需手动触发。
+
 **吊销原因代码 (RFC 5280):**
 
 | 代码 | 含义 |
@@ -230,8 +237,8 @@ curl -X POST "http://192.168.24.132:8443/api/v1/certificates/123/revoke" \
 
 ### 4.6 导出私钥
 
-> ⚠️ **安全警告**: 私钥导出是高危操作，每次导出都会记录审计日志！
-> 私钥导出需要审批配置关闭且验证当前密码，返回的私钥使用用户提供的密码加密。
+> ⚠️ **安全警告**: 私钥导出是高危操作，每次导出都会记录 `CRITICAL` 级别审计日志！
+> 导出受**原子计数**限制：`max_exports` 达到上限后拒绝导出，防止批量泄露。
 
 ```bash
 curl -X POST "http://192.168.24.132:8443/api/v1/keys/key-uuid/export" \
@@ -244,6 +251,12 @@ curl -X POST "http://192.168.24.132:8443/api/v1/keys/key-uuid/export" \
     "password": "<导出加密密码>"
   }'
 ```
+
+**限制说明**:
+- 单把密钥的导出次数上限由 `cert_keys.max_exports` 控制（`0` 表示无限制）
+- 系统通过 `WHERE export_count < max_exports` 原子更新，避免并发绕过
+- 导出密码长度必须 ≥12 位
+- 若配置 `requires_approval: true`，需确保 `export_approvers` 数量达到 `approval_levels` 方可导出
 
 ### 4.7 OCSP 查询
 
@@ -349,7 +362,7 @@ curl -s "http://192.168.24.132:8443/api/v1/audit/logs?event_type=CERT_ISSUE&star
 | `password_hash` | bcrypt 哈希密码 |
 | `real_name` | 真实姓名 |
 | `email` | 邮箱 |
-| `role` | `SUPER_ADMIN` / `ADMIN` / `AUDITOR` / `OPERATOR` |
+| `role` | `SUPER_ADMIN` / `SYS_ADMIN` / `SEC_ADMIN` / `AUDITOR` |
 | `permissions` | 权限列表（JSON） |
 | `login_fail_count` | 连续登录失败次数 |
 | `locked_until` | 账户锁定截止时间 |
@@ -364,9 +377,11 @@ curl -s "http://192.168.24.132:8443/api/v1/audit/logs?event_type=CERT_ISSUE&star
 | 角色 | 权限范围 |
 |------|----------|
 | `SUPER_ADMIN` | 全部权限（不建议常规使用） |
-| `SYS_ADMIN` | 系统配置、CA 策略、证书策略 |
-| `SEC_ADMIN` | 用户管理、权限分配、密钥管理、HSM 管理 |
-| `AUDITOR` | 仅审计日志查询和哈希链验证（只读） |
+| `SYS_ADMIN` | 系统配置、用户管理、证书查看、审计查看 |
+| `SEC_ADMIN` | 证书签发/吊销/续期、CA 管理、CRL/OCSP 管理、密钥管理/导出、HSM 管理、证书查看 |
+| `AUDITOR` | 审计日志查询和哈希链验证、证书查看（只读） |
+
+> **注意**: `ADMIN` 和 `OPERATOR` 角色已被移除，统一使用等保 2.0 三员角色。创建/更新操作员时，服务端会调用 `model.IsValidRole()` 校验角色合法性。
 
 ### 7.2 权限代码
 
@@ -441,15 +456,15 @@ cd /opt/opengm-ca
 ## 9. 安全最佳实践
 
 1. **修改默认密码**: 首次登录后立即修改所有管理员密码
-2. **启用 HTTPS**: 配置 TLS 证书，关闭 HTTP 明文传输（服务不再自动生成自签名证书）
-3. **设置主密钥**: `export CA_MASTER_KEY=$(openssl rand -hex 32)` 并重启服务
-4. **设置 JWT Secret**: `export CA_JWT_SECRET=$(openssl rand -hex 32)`，长度≥32
+2. **启用 HTTPS**: 配置 TLS 证书，关闭 HTTP 明文传输（服务不再自动生成自签名证书，缺失证书会直接报错）
+3. **设置主密钥**: `export CA_MASTER_KEY=$(openssl rand -hex 32)` 并重启服务（支持 hex/base64 自动识别）
+4. **设置 JWT Secret**: `export CA_JWT_SECRET=$(openssl rand -hex 32)`，长度≥32，启动时会强制拒绝默认弱密钥
 5. **定期轮换密钥**: 建议每年轮换中间CA密钥和JWT Secret
 6. **数据库备份**: 每日备份 openGauss 数据目录
-7. **审计监控**: 定期查看 `/api/v1/audit/logs`，关注 `SEVERITY_CRITICAL` 级别事件
+7. **审计监控**: 定期查看 `/api/v1/audit/logs`，关注 `SEVERITY_CRITICAL` 级别事件；定期执行 `/api/v1/audit/verify` 验证哈希链完整性
 8. **私钥导出审批**: 生产环境务必开启 `key_management.export.requires_approval: true`
-9. **密码复杂度**: 所有账号密码必须≥8位，包含大小写字母、数字和特殊字符
-10. **MFA 启用**: 为管理员账号启用多因素认证
+9. **密码复杂度**: 所有账号密码必须≥8位，包含大小写字母、数字和特殊字符；服务端通过 `validatePasswordStrength` 强制校验
+10. **MFA 启用**: 为管理员账号启用多因素认证（**注意**: 当前 TOTP 实现未完成，启用后用户将暂时无法登录）
 
 ---
 

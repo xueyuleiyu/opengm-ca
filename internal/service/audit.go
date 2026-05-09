@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/opengm-ca/opengm-ca/internal/model"
@@ -18,6 +19,9 @@ type AuditService struct {
 	logQueue  chan *model.AuditLog
 	wg        sync.WaitGroup
 	closeOnce sync.Once
+	closed    atomic.Bool // 防止向已关闭channel发送
+	lastHash  string      // 内存中维护最后哈希，替代数据库查询
+	hashMu    sync.Mutex  // 保护lastHash
 }
 
 // NewAuditService 创建审计日志服务
@@ -28,18 +32,31 @@ func NewAuditService(repo *repository.AuditRepository, enabled, hashChain bool) 
 		hashChain: hashChain,
 		logQueue:  make(chan *model.AuditLog, 1000),
 	}
-	// 使用单 worker 串行写入，确保审计日志哈希链严格连续，避免并发导致的 prev_hash 分叉
-	workerCount := 1
-	for i := 0; i < workerCount; i++ {
-		s.wg.Add(1)
-		go s.worker()
+	if hashChain {
+		// 异步初始化lastHash，避免阻塞服务启动
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			h, err := repo.GetLastHash(ctx)
+			if err != nil {
+				log.Warn().Err(err).Msg("审计哈希链初始化失败，使用空genesis hash")
+				h = ""
+			}
+			s.hashMu.Lock()
+			s.lastHash = h
+			s.hashMu.Unlock()
+		}()
 	}
+	// 使用单worker串行写入，确保审计日志严格连续
+	s.wg.Add(1)
+	go s.worker()
 	return s
 }
 
 // Close 关闭审计服务，等待所有待处理日志写入完成
 func (s *AuditService) Close() {
 	s.closeOnce.Do(func() {
+		s.closed.Store(true)
 		close(s.logQueue)
 		s.wg.Wait()
 	})
@@ -47,10 +64,19 @@ func (s *AuditService) Close() {
 
 func (s *AuditService) worker() {
 	defer s.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Interface("panic", r).Msg("审计worker panic恢复")
+		}
+	}()
 	for auditLog := range s.logQueue {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := s.repo.Create(bgCtx, auditLog); err != nil {
 			log.Warn().Err(err).Msg("审计日志写入失败")
+		} else if s.hashChain && auditLog.CurrHash != "" {
+			s.hashMu.Lock()
+			s.lastHash = auditLog.CurrHash
+			s.hashMu.Unlock()
 		}
 		cancel()
 	}
@@ -58,10 +84,13 @@ func (s *AuditService) worker() {
 
 // Log 记录审计日志
 func (s *AuditService) Log(ctx context.Context, eventType model.EventType, severity model.Severity, actor, actorIP, targetType, targetID, action string, detail map[string]interface{}, result model.Result, errorMsg string) {
-	if !s.enabled {
+	if !s.enabled || s.closed.Load() {
 		return
 	}
 
+	if actor == "" {
+		actor = "SYSTEM"
+	}
 	auditLog := &model.AuditLog{
 		EventTime:  time.Now(),
 		EventType:  eventType,
@@ -76,26 +105,27 @@ func (s *AuditService) Log(ctx context.Context, eventType model.EventType, sever
 		ErrorMsg:   errorMsg,
 	}
 
-	// 构建记录内容
 	auditLog.RecordContent = auditLog.BuildRecordContent()
 
-	// 计算哈希链
 	if s.hashChain {
-		prevHash, _ := s.repo.GetLastHash(ctx)
+		s.hashMu.Lock()
+		prevHash := s.lastHash
 		auditLog.PrevHash = prevHash
 		auditLog.CurrHash = auditLog.ComputeHash(prevHash)
+		s.hashMu.Unlock()
 	} else {
 		auditLog.CurrHash = auditLog.ComputeHash("")
 	}
 
-	// 写入队列（有界，避免无限goroutine增长）
 	select {
 	case s.logQueue <- auditLog:
 	default:
-		// 队列满时同步直写数据库，绝不丢弃审计日志
-		if err := s.repo.Create(ctx, auditLog); err != nil {
+		// 队列满时使用独立context同步直写，避免受调用方context取消影响
+		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if err := s.repo.Create(bgCtx, auditLog); err != nil {
 			log.Error().Err(err).Str("actor", actor).Str("action", action).Msg("审计日志队列已满且同步写入失败")
 		}
+		cancel()
 	}
 }
 

@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/uptrace/bun"
 )
@@ -32,24 +34,9 @@ func (r *SubjectRepository) GetByID(ctx context.Context, id int) (*model.Subject
 	return subject, nil
 }
 
-// GetOrCreate 根据身份标识获取或创建主体
-func (r *SubjectRepository) GetOrCreate(ctx context.Context, info *model.SubjectInfo) (*model.Subject, error) {
-	subject := new(model.Subject)
-	subjectType := model.SubjectTypeOrganization
-	if info.IDCardNumber != "" {
-		subjectType = model.SubjectTypePerson
-	}
-	err := r.db.NewSelect().Model(subject).
-		Where("subject_type = ?", subjectType).
-		Where("common_name = ?", info.CommonName).
-		Scan(ctx)
-	if err == nil {
-		return subject, nil
-	}
-
-	// 不存在则创建
-	subject = &model.Subject{
-		SubjectType:        model.SubjectTypePerson,
+// buildSubject 根据SubjectInfo构建Subject模型
+func buildSubject(info *model.SubjectInfo) *model.Subject {
+	s := &model.Subject{
 		CommonName:         info.CommonName,
 		Organization:       info.Organization,
 		OrganizationalUnit: info.OrganizationalUnit,
@@ -64,18 +51,35 @@ func (r *SubjectRepository) GetOrCreate(ctx context.Context, info *model.Subject
 		VPNDomain:          info.VPNDomain,
 	}
 	if info.DeviceID != "" {
-		subject.SubjectType = model.SubjectTypeDevice
+		s.SubjectType = model.SubjectTypeDevice
 	} else if info.IDCardNumber != "" {
-		subject.SubjectType = model.SubjectTypePerson
+		s.SubjectType = model.SubjectTypePerson
 	} else {
-		subject.SubjectType = model.SubjectTypeOrganization
+		s.SubjectType = model.SubjectTypeOrganization
 	}
+	return s
+}
 
-	_, err = r.db.NewInsert().Model(subject).Exec(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return subject, nil
+// GetOrCreate 根据身份标识获取或创建主体（使用事务避免TOCTOU竞态）
+func (r *SubjectRepository) GetOrCreate(ctx context.Context, info *model.SubjectInfo) (*model.Subject, error) {
+	subject := buildSubject(info)
+	err := r.db.RunInTx(ctx, nil, func(txCtx context.Context, tx bun.Tx) error {
+		found := new(model.Subject)
+		err := tx.NewSelect().Model(found).
+			Where("subject_type = ?", subject.SubjectType).
+			Where("common_name = ?", subject.CommonName).
+			Scan(txCtx)
+		if err == nil {
+			*subject = *found
+			return nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		_, err = tx.NewInsert().Model(subject).Exec(txCtx)
+		return err
+	})
+	return subject, err
 }
 
 // List 查询主体列表

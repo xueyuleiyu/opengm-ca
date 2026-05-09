@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -85,9 +86,8 @@ func (a *AuditLog) TableName() string {
 	return "audit_log"
 }
 
-// ComputeHash 计算当前记录的哈希值
-func (a *AuditLog) ComputeHash(prevHash string) string {
-	content, _ := json.Marshal(map[string]interface{}{
+func (a *AuditLog) toMap() map[string]interface{} {
+	return map[string]interface{}{
 		"event_time":  a.EventTime.Format(time.RFC3339Nano),
 		"event_type":  a.EventType,
 		"severity":    a.Severity,
@@ -100,8 +100,15 @@ func (a *AuditLog) ComputeHash(prevHash string) string {
 		"detail":      a.Detail,
 		"result":      a.Result,
 		"error_msg":   a.ErrorMsg,
-	})
+	}
+}
 
+// ComputeHash 计算当前记录的哈希值
+func (a *AuditLog) ComputeHash(prevHash string) string {
+	content, err := json.Marshal(a.toMap())
+	if err != nil {
+		panic(fmt.Sprintf("审计记录序列化失败: %v", err))
+	}
 	h := sha256.New()
 	h.Write([]byte(prevHash))
 	h.Write(content)
@@ -110,20 +117,10 @@ func (a *AuditLog) ComputeHash(prevHash string) string {
 
 // BuildRecordContent 构建记录内容JSON
 func (a *AuditLog) BuildRecordContent() string {
-	content, _ := json.Marshal(map[string]interface{}{
-		"event_time":  a.EventTime.Format(time.RFC3339Nano),
-		"event_type":  a.EventType,
-		"severity":    a.Severity,
-		"actor":       a.Actor,
-		"actor_type":  a.ActorType,
-		"actor_ip":    a.ActorIP,
-		"target_type": a.TargetType,
-		"target_id":   a.TargetID,
-		"action":      a.Action,
-		"detail":      a.Detail,
-		"result":      a.Result,
-		"error_msg":   a.ErrorMsg,
-	})
+	content, err := json.Marshal(a.toMap())
+	if err != nil {
+		panic(fmt.Sprintf("审计记录序列化失败: %v", err))
+	}
 	return string(content)
 }
 

@@ -19,7 +19,17 @@
 - **CRL/OCSP**: 标准 DER 格式响应，符合 RFC 5280 / RFC 6960
 - **国密TLS**: 支持GMTLS双栈(国际TLS + 国密TLS)
 - **JWT安全**: 仅HS256，显式校验claims，拒绝none算法
-- **密码策略**: 服务端强制强度校验(≥8位，大小写+数字+特殊字符)
+- **密码策略**: 服务端强制强度校验(≥8位，大小写+数字+特殊字符)；三员管理员初始密码支持环境变量注入或密码学安全随机生成
+- **等保三员分离**: SUPER_ADMIN / SYS_ADMIN / SEC_ADMIN / AUDITOR 四级角色，通过 `init-admins` API 初始化
+- **证书有效期截断**: 终端证书有效期自动限制在 CA 有效期范围内，防止签发超期证书
+- **吊销即时生效**: 吊销证书后自动重新生成并保存 CRL，失败时回滚吊销状态
+- **私钥导出原子计数**: 数据库层原子更新导出次数，消除并发竞态条件
+- **审计防篡改**: 哈希链式审计日志，内存串行化计算， graceful shutdown 保障完整性
+- **OCSP 实时响应**: 标准 DER/JSON 格式，使用正确 CA 证书作为 Issuer
+- **HSM 安全存储**: 软 HSM 实现，GCM 标准格式，PBKDF2 600,000 迭代
+- **JWT密钥强度校验**: 启动时强制校验密钥长度≥32字节，拒绝弱密钥
+- **私钥导出密码策略**: 导出密码要求12位以上，包含大小写字母、数字和特殊字符
+- **主密钥编码检测**: 自动识别hex(64字符)和base64格式，确保32字节密钥长度
 
 ---
 
@@ -61,6 +71,11 @@ database:
   user: "ca_admin"
   password: "${DB_PASSWORD}"  # 通过环境变量传入
   dbname: "opengm_ca"
+  ssl_mode: "prefer"          # 生产环境建议 require/verify-ca
+
+auth:
+  jwt:
+    secret: "${JWT_SECRET}"   # 启动时强制校验长度≥32，拒绝默认弱密钥
 ```
 
 ### 4. 初始化数据库
@@ -76,7 +91,22 @@ make init-db
 make init-ca
 ```
 
-### 6. 启动服务
+### 6. 初始化三员管理员
+
+```bash
+# 启动服务后，以 SUPER_ADMIN 登录，调用 init-admins 接口
+curl -X POST https://localhost:8443/api/v1/auth/init-admins \
+  -H "Authorization: Bearer <token>"
+```
+
+生产环境建议预先设置环境变量：
+```bash
+export CA_DEFAULT_SYS_ADMIN_PASSWORD="<强密码>"
+export CA_DEFAULT_SEC_ADMIN_PASSWORD="<强密码>"
+export CA_DEFAULT_AUDIT_ADMIN_PASSWORD="<强密码>"
+```
+
+### 7. 启动服务
 
 ```bash
 make run

@@ -5,6 +5,8 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -21,7 +23,7 @@ type KeyStore struct {
 
 // NewKeyStore 创建密钥存储管理器
 func NewKeyStore(masterKeySource string) (*KeyStore, error) {
-	masterKey, err := resolveMasterKey(masterKeySource)
+	masterKey, err := ResolveMasterKey(masterKeySource)
 	if err != nil {
 		return nil, fmt.Errorf("加载主密钥失败: %w", err)
 	}
@@ -160,15 +162,35 @@ func (ks *KeyStore) deriveKey(salt []byte) ([]byte, error) {
 	return derivedKey, nil
 }
 
-// resolveMasterKey 解析主密钥
-func resolveMasterKey(source string) ([]byte, error) {
+// ResolveMasterKey 解析主密钥（优先使用hex格式，避免base64歧义）
+func ResolveMasterKey(source string) ([]byte, error) {
+	var raw string
 	// 从环境变量获取
 	if envKey := os.Getenv(source); envKey != "" {
-		return []byte(envKey), nil
+		raw = envKey
+	} else if data, err := os.ReadFile(source); err == nil {
+		// 从文件获取
+		raw = string(data)
+	} else {
+		return nil, fmt.Errorf("无法从 %s 加载主密钥", source)
 	}
-	// 从文件获取
-	if data, err := os.ReadFile(source); err == nil {
-		return data, nil
+
+	// 优先尝试hex解码（64字符 = 32字节，这是推荐的格式）
+	if len(raw) == 64 {
+		if b, err := hex.DecodeString(raw); err == nil {
+			return b, nil
+		}
 	}
-	return nil, fmt.Errorf("无法从 %s 加载主密钥", source)
+
+	// 如果不是hex，检查是否是base64编码的32字节
+	if b, err := base64.StdEncoding.DecodeString(raw); err == nil && len(b) == 32 {
+		return b, nil
+	}
+
+	// 最后尝试直接使用原始字节（必须是32字节）
+	if len(raw) == 32 {
+		return []byte(raw), nil
+	}
+
+	return nil, fmt.Errorf("主密钥格式无效，请提供64字符hex编码、44字符base64编码或32字节原始数据，当前长度: %d", len(raw))
 }

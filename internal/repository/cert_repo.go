@@ -19,7 +19,7 @@ func NewCertificateRepository(db *bun.DB) *CertificateRepository {
 
 // Create 创建证书记录
 func (r *CertificateRepository) Create(ctx context.Context, cert *model.Certificate) error {
-	_, err := r.db.NewInsert().Model(cert).Exec(ctx)
+	_, err := r.db.NewInsert().Model(cert).Returning("*").Exec(ctx)
 	return err
 }
 
@@ -46,6 +46,24 @@ func (r *CertificateRepository) GetBySerialNumber(ctx context.Context, caID int,
 	return cert, nil
 }
 
+// UpdateDualCertPairID 更新双证书配对关系
+func (r *CertificateRepository) UpdateDualCertPairID(ctx context.Context, signCertID, encCertID int64) error {
+	_, err := r.db.NewUpdate().Model((*model.Certificate)(nil)).
+		Set("dual_cert_pair_id = ?", encCertID).
+		Set("updated_at = NOW()").
+		Where("id = ?", signCertID).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.NewUpdate().Model((*model.Certificate)(nil)).
+		Set("dual_cert_pair_id = ?", signCertID).
+		Set("updated_at = NOW()").
+		Where("id = ?", encCertID).
+		Exec(ctx)
+	return err
+}
+
 // List 查询证书列表
 func (r *CertificateRepository) List(ctx context.Context, filters map[string]interface{}, offset, limit int) ([]model.Certificate, int, error) {
 	query := r.db.NewSelect().Model((*model.Certificate)(nil))
@@ -69,7 +87,11 @@ func (r *CertificateRepository) List(ctx context.Context, filters map[string]int
 	}
 
 	var certs []model.Certificate
-	err = query.OrderExpr("issued_at DESC").Limit(limit).Offset(offset).Scan(ctx, &certs)
+	query = query.OrderExpr("issued_at DESC").Offset(offset)
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err = query.Scan(ctx, &certs)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -13,8 +13,11 @@ import (
 	"github.com/opengm-ca/opengm-ca/internal/config"
 )
 
+// UserStatusChecker 用户实时状态检查接口（在JWT中间件中校验账户是否仍有效）
+type UserStatusChecker func(userID string) (bool, error)
+
 // JWTMiddleware JWT认证中间件
-func JWTMiddleware(cfg *config.AuthConfig) gin.HandlerFunc {
+func JWTMiddleware(cfg *config.AuthConfig, checker ...UserStatusChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -68,8 +71,24 @@ func JWTMiddleware(cfg *config.AuthConfig) gin.HandlerFunc {
 			return
 		}
 
-		// 设置用户信息到上下文
-		c.Set("user_id", claims["sub"])
+		// 设置用户信息到上下文（强制类型断言，防止客户端伪造非字符串sub）
+		sub, ok := claims["sub"].(string)
+		if !ok || sub == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "Token主体格式无效"})
+			c.Abort()
+			return
+		}
+
+		// 校验用户实时状态（账户是否仍有效、未被锁定）
+		if len(checker) > 0 && checker[0] != nil {
+			if valid, checkErr := checker[0](sub); checkErr != nil || !valid {
+				c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "账户已被禁用或锁定"})
+				c.Abort()
+				return
+			}
+		}
+
+		c.Set("user_id", sub)
 		c.Set("username", claims["username"])
 		c.Set("role", claims["role"])
 		c.Set("permissions", claims["permissions"])
@@ -95,26 +114,25 @@ func RequirePermission(permission string) gin.HandlerFunc {
 			return
 		}
 
-		hasPerm := false
 		for _, p := range permList {
 			if p == "*" || p == permission {
-				hasPerm = true
-				break
+				c.Next()
+				return
 			}
 		}
 
-		if !hasPerm {
-			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "缺少权限: " + permission})
-			c.Abort()
-			return
-		}
-
-		c.Next()
+		c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "缺少权限: " + permission})
+		c.Abort()
 	}
 }
 
 // GenerateJWT 生成JWT Token
 func GenerateJWT(cfg *config.AuthConfig, userID, username string, role string, permissions []string) (string, error) {
+	// 校验JWT密钥长度（HS256需要至少32字节密钥）
+	if len(cfg.JWT.Secret) < 32 {
+		return "", fmt.Errorf("JWT密钥长度不足，至少需要32字节(256位)，当前: %d字节", len(cfg.JWT.Secret))
+	}
+
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub":         userID,
@@ -130,21 +148,32 @@ func GenerateJWT(cfg *config.AuthConfig, userID, username string, role string, p
 	return token.SignedString([]byte(cfg.JWT.Secret))
 }
 
-// RateLimitMiddleware 简单限流中间件
+// RateLimitMiddleware 简单限流中间件（定期清理过期条目，防止内存泄漏）
 func RateLimitMiddleware(maxRequests int, window time.Duration) gin.HandlerFunc {
-	// 简化实现：使用内存map记录请求次数（带锁保护）
 	type clientInfo struct {
 		count   int
 		resetAt time.Time
 	}
 	clients := make(map[string]*clientInfo)
-	var mu sync.RWMutex
+	var mu sync.Mutex
+	var cleanupTick int
 
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
 		now := time.Now()
 
 		mu.Lock()
+		// 每1000次请求触发一次过期条目清理
+		cleanupTick++
+		if cleanupTick >= 1000 {
+			cleanupTick = 0
+			for ip, info := range clients {
+				if now.After(info.resetAt) {
+					delete(clients, ip)
+				}
+			}
+		}
+
 		info, exists := clients[clientIP]
 		if !exists || now.After(info.resetAt) {
 			clients[clientIP] = &clientInfo{
@@ -159,11 +188,10 @@ func RateLimitMiddleware(maxRequests int, window time.Duration) gin.HandlerFunc 
 		if info.count >= maxRequests {
 			mu.Unlock()
 			c.Header("Retry-After", fmt.Sprintf("%d", int(window.Seconds())))
-			c.JSON(http.StatusTooManyRequests, gin.H{
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"code":    "RATE_LIMITED",
 				"message": "请求过于频繁，请稍后重试",
 			})
-			c.Abort()
 			return
 		}
 

@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/uptrace/bun"
@@ -79,8 +81,10 @@ func (r *AuditRepository) GetLastHash(ctx context.Context) (string, error) {
 		Limit(1).
 		Scan(ctx, &result)
 	if err != nil {
-		// 如果没有记录，返回空字符串作为 genesis hash
-		return "", nil
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
 	}
 	return result.CurrHash, nil
 }

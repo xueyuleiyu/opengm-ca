@@ -122,23 +122,35 @@ func (r OperatorRole) RoleDescription() string {
 }
 
 // 角色默认权限映射（等保2.0 权限分离）
-func checkRolePermission(role OperatorRole, perm string) bool {
-	rolePerms := map[OperatorRole][]string{
-		RoleSysAdmin: {
-			"SYSTEM_CONFIG", "USER_MANAGE", "CERT_READ", "AUDIT_READ",
-		},
-		RoleSecAdmin: {
-			"CERT_ISSUE", "CERT_REVOKE", "CERT_RENEW",
-			"CA_MANAGE", "CRL_GENERATE", "OCSP_MANAGE", "CERT_POLICY_MANAGE",
-			"KEY_MANAGE", "KEY_EXPORT", "HSM_MANAGE",
-			"CERT_READ",
-		},
-		RoleAuditor: {
-			"AUDIT_READ", "AUDIT_VERIFY",
-			"CERT_READ",
-		},
-		RoleSuperAdmin: {"*"},
+var rolePerms = map[OperatorRole][]string{
+	RoleSysAdmin: {
+		"SYSTEM_CONFIG", "USER_MANAGE", "CERT_READ", "AUDIT_READ",
+	},
+	RoleSecAdmin: {
+		"CERT_ISSUE", "CERT_REVOKE", "CERT_RENEW",
+		"CA_MANAGE", "CRL_GENERATE", "OCSP_MANAGE", "CERT_POLICY_MANAGE",
+		"KEY_MANAGE", "KEY_EXPORT", "HSM_MANAGE",
+		"CERT_READ",
+	},
+	RoleAuditor: {
+		"AUDIT_READ", "AUDIT_VERIFY",
+		"CERT_READ",
+	},
+	RoleSuperAdmin: {"*"},
+}
+
+// GetRolePermissions 根据角色获取默认权限列表
+func GetRolePermissions(role OperatorRole) []string {
+	perms := rolePerms[role]
+	if perms == nil {
+		return []string{}
 	}
+	out := make([]string, len(perms))
+	copy(out, perms)
+	return out
+}
+
+func checkRolePermission(role OperatorRole, perm string) bool {
 	perms, ok := rolePerms[role]
 	if !ok {
 		return false

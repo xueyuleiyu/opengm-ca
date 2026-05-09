@@ -38,7 +38,14 @@ func (s *CertExpirationScheduler) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			s.scan(ctx)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Error().Interface("panic", r).Msg("证书扫描任务panic恢复")
+					}
+				}()
+				s.scan(ctx)
+			}()
 		case <-ctx.Done():
 			log.Info().Msg("证书到期扫描调度器已停止")
 			return

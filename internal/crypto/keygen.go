@@ -107,6 +107,20 @@ func EncodeECPrivateKey(privateKey *ecdsa.PrivateKey) (string, error) {
 	return string(pem.EncodeToMemory(block)), nil
 }
 
+// EncodePrivateKey 根据算法自动选择编码格式
+func EncodePrivateKey(privKey interface{}, algorithm string) (string, error) {
+	switch algorithm {
+	case "SM2":
+		return EncodeSM2PrivateKey(privKey.(*sm2.PrivateKey))
+	case "RSA2048", "RSA4096":
+		return EncodePrivateKeyToPKCS1(privKey.(*rsa.PrivateKey))
+	case "EC256", "EC384":
+		return EncodeECPrivateKey(privKey.(*ecdsa.PrivateKey))
+	default:
+		return EncodePrivateKeyToPKCS8(privKey)
+	}
+}
+
 // EncodeSM2PrivateKey 将SM2私钥编码为PKCS#8 PEM格式
 func EncodeSM2PrivateKey(privateKey *sm2.PrivateKey) (string, error) {
 	oidSM2 := asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 301}

@@ -60,7 +60,7 @@ func (s *OperatorService) Update(ctx context.Context, id int, req *model.UpdateO
 		op.Permissions = req.Permissions
 	}
 
-	return s.opRepo.Update(ctx, op)
+	return s.opRepo.UpdateProfile(ctx, op)
 }
 
 // Delete 删除操作员
@@ -75,24 +75,12 @@ func (s *OperatorService) GetByID(ctx context.Context, id int) (*model.Operator,
 
 // UpdatePassword 更新密码
 func (s *OperatorService) UpdatePassword(ctx context.Context, id int, hash string) error {
-	op, err := s.opRepo.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	op.PasswordHash = hash
-	op.LoginFailCount = 0
-	op.LockedUntil = nil
-	return s.opRepo.Update(ctx, op)
+	return s.opRepo.UpdatePassword(ctx, id, hash)
 }
 
 // ToggleStatus 切换状态
 func (s *OperatorService) ToggleStatus(ctx context.Context, id int, isActive bool) error {
-	op, err := s.opRepo.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	op.IsActive = isActive
-	return s.opRepo.Update(ctx, op)
+	return s.opRepo.ToggleStatus(ctx, id, isActive)
 }
 
 // UpdateLoginInfo 更新登录信息
@@ -100,8 +88,8 @@ func (s *OperatorService) UpdateLoginInfo(ctx context.Context, id int, ip string
 	return s.opRepo.UpdateLoginInfo(ctx, id, ip)
 }
 
-// IncrementLoginFail 增加登录失败次数
-func (s *OperatorService) IncrementLoginFail(ctx context.Context, id int) error {
+// IncrementLoginFail 增加登录失败次数并返回最新值
+func (s *OperatorService) IncrementLoginFail(ctx context.Context, id int) (int, error) {
 	return s.opRepo.IncrementLoginFail(ctx, id)
 }
 

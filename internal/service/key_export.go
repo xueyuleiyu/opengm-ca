@@ -49,7 +49,9 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 
 	// 2. 审批检查（如配置启用）
 	if s.cfg.KeyManagement.Export.RequiresApproval {
-		return nil, fmt.Errorf("私钥导出需要审批流程支持，当前系统未实现审批功能，导出被拒绝")
+		if len(keyModel.ExportApprovers) < s.cfg.KeyManagement.Export.ApprovalLevels {
+			return nil, fmt.Errorf("私钥导出需要审批，当前审批人数不足(%d/%d)", len(keyModel.ExportApprovers), s.cfg.KeyManagement.Export.ApprovalLevels)
+		}
 	}
 
 	// 3. 权限检查
@@ -75,37 +77,44 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 	}
 	if err := verifyPassword(op.PasswordHash, req.CurrentPassword); err != nil {
 		s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityWarn, actor, actorIP, "KEY", req.KeyID,
-			"私钥导出失败: 二次认证密码错误", map[string]interface{}{"key_id": req.KeyID},
+			"私钥导出失败：二次认证密码错误", map[string]interface{}{"key_id": req.KeyID},
 			model.ResultFailed, "二次认证失败")
-		return nil, fmt.Errorf("二次认证失败: 密码错误")
+		return nil, fmt.Errorf("二次认证失败：密码错误")
 	}
 
-	// 6. 强制要求导出密码
+	// 6. 强制要求导出密码并校验强度
 	if req.Password == "" {
 		return nil, fmt.Errorf("必须提供导出密码以保护私钥")
 	}
+	if err := ValidateExportPasswordStrength(req.Password); err != nil {
+		return nil, fmt.Errorf("导出密码强度不足: %w", err)
+	}
 
-	// 6. 解密私钥
+	// 7. 解密私钥
 	plainKey, err := s.keyStore.RetrieveKey(keyModel)
 	if err != nil {
 		s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityCritical, actor, actorIP, "KEY", req.KeyID,
-			"私钥导出失败: 解密失败", map[string]interface{}{"key_id": req.KeyID, "reason": req.Reason},
+			"私钥导出失败：解密失败", map[string]interface{}{"key_id": req.KeyID, "reason": req.Reason},
 			model.ResultFailed, err.Error())
 		return nil, fmt.Errorf("解密私钥失败: %w", err)
 	}
 
-	// 7. 使用密码加密私钥 (PBKDF2 + AES-256-GCM)
+	// 8. 使用密码加密私钥 (PBKDF2 + AES-256-GCM)
 	encryptedPEM, err := encryptPrivateKeyWithPassword(plainKey, req.Password)
 	if err != nil {
 		return nil, fmt.Errorf("加密导出私钥失败: %w", err)
 	}
 
-	// 8. 更新导出计数
-	if err := s.keyRepo.IncrementExportCount(ctx, req.KeyID); err != nil {
+	// 9. 原子更新导出计数（在数据库层检查上限，防止竞态条件绕过）
+	ok, err := s.keyRepo.IncrementExportCount(ctx, req.KeyID)
+	if err != nil {
 		return nil, fmt.Errorf("更新导出计数失败: %w", err)
 	}
+	if !ok {
+		return nil, fmt.Errorf("密钥导出次数已达上限")
+	}
 
-	// 9. 构建响应
+	// 10. 构建响应
 	resp := &model.KeyExportResponse{
 		KeyID:         req.KeyID,
 		PrivateKeyPEM: encryptedPEM,
@@ -120,9 +129,9 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 		resp.RemainingExports = &remaining
 	}
 
-	// 10. 审计日志（CRITICAL级别）
+	// 11. 审计日志（CRITICAL级别）
 	s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityCritical, actor, actorIP, "KEY", req.KeyID,
-		fmt.Sprintf("导出私钥: %s, 原因: %s", req.KeyID, req.Reason), map[string]interface{}{
+		fmt.Sprintf("导出私钥：%s，原因：%s", req.KeyID, req.Reason), map[string]interface{}{
 			"key_id":            req.KeyID,
 			"algorithm":         keyModel.Algorithm,
 			"export_format":     req.ExportFormat,
@@ -131,6 +140,39 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 		}, model.ResultSuccess, "")
 
 	return resp, nil
+}
+
+// ValidateExportPasswordStrength 校验导出密码强度
+func ValidateExportPasswordStrength(password string) error {
+	if len(password) < 12 {
+		return fmt.Errorf("密码长度至少12位")
+	}
+	var hasUpper, hasLower, hasNumber, hasSpecial bool
+	for _, ch := range password {
+		switch {
+		case ch >= 'A' && ch <= 'Z':
+			hasUpper = true
+		case ch >= 'a' && ch <= 'z':
+			hasLower = true
+		case ch >= '0' && ch <= '9':
+			hasNumber = true
+		default:
+			hasSpecial = true
+		}
+	}
+	if !hasUpper {
+		return fmt.Errorf("密码必须包含大写字母")
+	}
+	if !hasLower {
+		return fmt.Errorf("密码必须包含小写字母")
+	}
+	if !hasNumber {
+		return fmt.Errorf("密码必须包含数字")
+	}
+	if !hasSpecial {
+		return fmt.Errorf("密码必须包含特殊字符")
+	}
+	return nil
 }
 
 // verifyPassword 校验密码（bcrypt）
@@ -142,25 +184,23 @@ func verifyPassword(hashedPassword, password string) error {
 func encryptPrivateKeyWithPassword(plainKey []byte, password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
-		return "", fmt.Errorf("生成盐值失败: %w", err)
+		return "", err
 	}
-	derivedKey := pbkdf2.Key([]byte(password), salt, 100000, 32, sha256.New)
+	derivedKey := pbkdf2.Key([]byte(password), salt, 600000, 32, sha256.New)
 
 	block, err := aes.NewCipher(derivedKey)
 	if err != nil {
-		return "", fmt.Errorf("创建AES密码器失败: %w", err)
+		return "", err
 	}
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return "", fmt.Errorf("创建GCM模式失败: %w", err)
+		return "", err
 	}
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("生成nonce失败: %w", err)
+		return "", err
 	}
 
 	ciphertext := gcm.Seal(nonce, nonce, plainKey, nil)
-	// 格式: base64(salt || ciphertext)
-	result := base64.StdEncoding.EncodeToString(append(salt, ciphertext...))
-	return result, nil
+	return base64.StdEncoding.EncodeToString(append(salt, ciphertext...)), nil
 }

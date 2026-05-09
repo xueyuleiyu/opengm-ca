@@ -25,6 +25,7 @@ import (
 	"github.com/emmansun/gmsm/sm2"
 	smx509 "github.com/emmansun/gmsm/smx509"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/pbkdf2"
 )
 
@@ -37,14 +38,15 @@ type SoftHSM struct {
 }
 
 type keyRecord struct {
-	Handle       string `json:"handle"`
-	Algorithm    string `json:"algorithm"`
-	KeyType      string `json:"key_type"`
-	CreatedAt    int64  `json:"created_at"`
-	EncryptedKey []byte `json:"encrypted_key"`
-	Nonce        []byte `json:"nonce"`
-	KEKSalt      []byte `json:"kek_salt,omitempty"` // 独立密钥加密盐值（v2格式）
-	PublicKeyPEM string `json:"public_key_pem"`
+	Handle        string `json:"handle"`
+	Algorithm     string `json:"algorithm"`
+	KeyType       string `json:"key_type"`
+	CreatedAt     int64  `json:"created_at"`
+	EncryptedKey  []byte `json:"encrypted_key"`
+	Nonce         []byte `json:"nonce"`
+	KEKSalt       []byte `json:"kek_salt,omitempty"`       // 独立密钥加密盐值（v2格式）
+	KEKIterations int    `json:"kek_iterations,omitempty"` // 0表示旧格式(10000)
+	PublicKeyPEM  string `json:"public_key_pem"`
 }
 
 // NewSoftHSM 创建软件HSM
@@ -188,7 +190,7 @@ func (h *SoftHSM) Sign(handle string, digest []byte, hashAlgo string) ([]byte, e
 	}
 
 	// 解密私钥
-	privBytes, err := h.decrypt(record.EncryptedKey, record.Nonce, record.KEKSalt)
+	privBytes, err := h.decrypt(record.EncryptedKey, record.Nonce, record.KEKSalt, record.KEKIterations)
 	if err != nil {
 		return nil, fmt.Errorf("解密私钥失败: %w", err)
 	}
@@ -240,13 +242,19 @@ func (h *SoftHSM) GetPublicKeyPEM(handle string) (string, error) {
 	return record.PublicKeyPEM, nil
 }
 
-// DeleteKey 删除密钥
+// DeleteKey 删除密钥（执行安全擦除后删除）
 func (h *SoftHSM) DeleteKey(handle string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if _, ok := h.keys[handle]; !ok {
+	record, ok := h.keys[handle]
+	if !ok {
 		return fmt.Errorf("密钥不存在: %s", handle)
+	}
+
+	// 安全擦除内存中的敏感密钥材料
+	for i := range record.EncryptedKey {
+		record.EncryptedKey[i] = 0
 	}
 
 	delete(h.keys, handle)
@@ -387,12 +395,17 @@ func loadOrGenerateSalt(baseDir string) ([]byte, error) {
 	return salt, nil
 }
 
+const defaultPBKDF2Iterations = 600000
+
 // deriveKEK 使用主密钥和独立盐值派生密钥加密密钥（KEK）
-func (h *SoftHSM) deriveKEK(kekSalt []byte) []byte {
+func (h *SoftHSM) deriveKEK(kekSalt []byte, iterations int) []byte {
 	if len(kekSalt) == 0 {
 		return h.masterKey
 	}
-	return pbkdf2.Key(h.masterKey, kekSalt, 10000, 32, sha256.New)
+	if iterations <= 0 {
+		iterations = defaultPBKDF2Iterations
+	}
+	return pbkdf2.Key(h.masterKey, kekSalt, iterations, 32, sha256.New)
 }
 
 // 内部方法：加密（返回 ciphertext, nonce, kekSalt）
@@ -402,7 +415,7 @@ func (h *SoftHSM) encrypt(plaintext []byte) ([]byte, []byte, []byte, error) {
 	if _, err := io.ReadFull(rand.Reader, kekSalt); err != nil {
 		return nil, nil, nil, err
 	}
-	kek := h.deriveKEK(kekSalt)
+	kek := h.deriveKEK(kekSalt, defaultPBKDF2Iterations)
 	block, err := aes.NewCipher(kek)
 	if err != nil {
 		return nil, nil, nil, err
@@ -415,13 +428,15 @@ func (h *SoftHSM) encrypt(plaintext []byte) ([]byte, []byte, []byte, error) {
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, nil, nil, err
 	}
-	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+	// 使用标准GCM格式：ciphertext = encrypted_plaintext || tag，nonce单独保存
+	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
 	return ciphertext, nonce, kekSalt, nil
 }
 
 // 内部方法：解密（兼容旧格式：无 KEKSalt 时回退到 masterKey）
-func (h *SoftHSM) decrypt(ciphertext []byte, nonce []byte, kekSalt []byte) ([]byte, error) {
-	kek := h.deriveKEK(kekSalt)
+// 兼容旧格式：旧代码使用 gcm.Seal(nonce, nonce, plaintext, nil)，导致 ciphertext = nonce || encrypted || tag
+func (h *SoftHSM) decrypt(ciphertext []byte, nonce []byte, kekSalt []byte, iterations int) ([]byte, error) {
+	kek := h.deriveKEK(kekSalt, iterations)
 	block, err := aes.NewCipher(kek)
 	if err != nil {
 		return nil, err
@@ -430,7 +445,19 @@ func (h *SoftHSM) decrypt(ciphertext []byte, nonce []byte, kekSalt []byte) ([]by
 	if err != nil {
 		return nil, err
 	}
-	return gcm.Open(nil, nonce, ciphertext, nil)
+	// 尝试标准格式
+	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err == nil {
+		return plain, nil
+	}
+	// 兼容旧格式：跳过前nonceSize字节的重复nonce前缀
+	if len(ciphertext) > gcm.NonceSize() {
+		oldPlain, oldErr := gcm.Open(nil, nonce, ciphertext[gcm.NonceSize():], nil)
+		if oldErr == nil {
+			return oldPlain, nil
+		}
+	}
+	return nil, err
 }
 
 // 内部方法：保存密钥记录到文件
@@ -458,11 +485,13 @@ func (h *SoftHSM) loadAllKeys() error {
 		path := filepath.Join(h.baseDir, entry.Name())
 		data, err := os.ReadFile(path)
 		if err != nil {
+			log.Warn().Str("file", path).Err(err).Msg("HSM密钥文件读取失败，跳过")
 			continue
 		}
 
 		var record keyRecord
 		if err := json.Unmarshal(data, &record); err != nil {
+			log.Warn().Str("file", path).Err(err).Msg("HSM密钥文件解析失败，跳过")
 			continue
 		}
 

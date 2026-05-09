@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"hash"
 	"os"
-	"time"
 
 	"github.com/emmansun/gmsm/sm2"
 	"github.com/emmansun/gmsm/sm3"
@@ -50,9 +49,9 @@ func (s *SM2Signer) Sign(data []byte) ([]byte, error) {
 	return sm2.SignASN1(rand.Reader, s.PrivateKey, data, sm2.NewSM2SignerOption(true, s.UID))
 }
 
-// SignDigest 对SM3摘要签名
+// SignDigest 对SM3摘要签名（不再内部哈希，直接使用digest）
 func (s *SM2Signer) SignDigest(digest []byte) ([]byte, error) {
-	return sm2.SignASN1(rand.Reader, s.PrivateKey, digest, sm2.NewSM2SignerOption(true, s.UID))
+	return sm2.SignASN1(rand.Reader, s.PrivateKey, digest, sm2.NewSM2SignerOption(false, s.UID))
 }
 
 // PublicKey 返回SM2公钥
@@ -78,8 +77,8 @@ func resolveSM2UID() []byte {
 	// 未配置时生成随机16字节UID（避免使用硬编码测试值）
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// 熵源失败时回退到时间戳派生（极罕见）
-		return []byte(fmt.Sprintf("%016x", time.Now().UnixNano()))
+		// 熵源失败时panic（系统随机数源不可恢复）
+		panic(fmt.Sprintf("SM2 UID生成失败(熵源错误): %v", err))
 	}
 	return b
 }
