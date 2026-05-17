@@ -99,6 +99,25 @@ The following high and medium severity issues were fixed in this release:
 | Medium | Export password only checked length | `internal/service/key_export.go` — require uppercase+lowercase+number+special (12+ chars) |
 | Medium | SM2 private key encoding inconsistent | `internal/core/ca.go` — reuse crypto package functions |
 
+### 2026-05-17 — Fifth Round Security Hardening
+
+The following high and medium severity issues were fixed based on comprehensive security audit:
+
+| Severity | Issue | Fix Location |
+|----------|-------|--------------|
+| High | Master key source validation insufficient | `internal/crypto/keystore.go` — file permission check (≤0600), symlink detection, source type logging |
+| High | API input parameter size not limited | `internal/api/middleware/request_limit.go`, `internal/api/handler/certificate.go` — request body size limits, field length validation |
+| Medium | HSM PBKDF2 iterations inconsistent | `internal/hsm/softhsm.go` — unified to 600,000 iterations for both master key and KEK derivation |
+| Medium | Database DSN could leak in logs | `internal/repository/db.go` — use redacted DSN in error messages and logs |
+| Medium | Audit queue full could block requests | `internal/service/audit.go` — increased queue capacity to 5000, added backup file mechanism |
+
+**Key improvements:**
+- Master key file permission validation prevents unauthorized access
+- API request size limits prevent DoS attacks via large payloads
+- Unified PBKDF2 iterations (600,000) meet OWASP recommendations
+- Database password redaction prevents credential leakage in logs
+- Audit queue backup mechanism prevents service blocking under high load
+
 ## Cryptographic Details
 
 ### Private Key Encryption

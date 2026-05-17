@@ -60,7 +60,8 @@ func NewSoftHSM(baseDir, password string) (*SoftHSM, error) {
 	if err != nil {
 		return nil, fmt.Errorf("加载或生成HSM盐值失败: %w", err)
 	}
-	masterKey := pbkdf2.Key([]byte(password), salt, 100000, 32, sha256.New)
+	// 统一使用600,000次迭代，符合OWASP推荐
+	masterKey := pbkdf2.Key([]byte(password), salt, defaultPBKDF2Iterations, 32, sha256.New)
 
 	hsm := &SoftHSM{
 		baseDir:   baseDir,

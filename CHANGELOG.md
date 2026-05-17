@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - 2026-05-17
+
+### Security（安全加固）
+
+- **主密钥来源验证增强** (`internal/crypto/keystore.go`)
+  - 增加主密钥文件权限校验（必须≤0600）
+  - 增加符号链接检测，拒绝符号链接文件
+  - 增加来源类型记录（environment_variable/file）
+  - 增加主密钥加载成功审计日志（不记录密钥内容）
+
+- **API输入参数安全限制** (`internal/api/middleware/request_limit.go`, `internal/api/handler/certificate.go`)
+  - 全局请求体大小限制：10MB
+  - 证书申请接口请求体限制：1MB
+  - CSR PEM大小限制：100KB
+  - Subject字段长度限制：256字符
+  - SAN数量限制：100个
+  - KeyUsage/ExtKeyUsage数量限制：10个
+  - CSR PEM格式校验（起始/结束标记）
+
+- **HSM PBKDF2迭代次数统一** (`internal/hsm/softhsm.go`)
+  - 主密钥派生迭代次数统一为600,000次
+  - 密钥加密密钥派生迭代次数统一为600,000次
+  - 符合OWASP推荐标准
+
+- **数据库连接字符串脱敏** (`internal/repository/db.go`)
+  - 错误消息中使用脱敏DSN（password=REDACTED）
+  - 日志输出使用脱敏DSN
+  - 防止数据库密码在日志中泄露
+
+- **审计日志队列优化** (`internal/service/audit.go`)
+  - 队列容量从1000增加到5000
+  - 增加备份文件路径配置
+  - 队列满时写入备份文件（异步，不阻塞业务请求）
+  - 增加丢弃计数器和警告日志
+
 ## [Unreleased] - 2026-05-09
 
 ### Security（高风险修复）

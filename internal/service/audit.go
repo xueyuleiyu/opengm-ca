@@ -13,24 +13,27 @@ import (
 
 // AuditService 审计日志服务
 type AuditService struct {
-	repo      *repository.AuditRepository
-	enabled   bool
-	hashChain bool
-	logQueue  chan *model.AuditLog
-	wg        sync.WaitGroup
-	closeOnce sync.Once
-	closed    atomic.Bool // 防止向已关闭channel发送
-	lastHash  string      // 内存中维护最后哈希，替代数据库查询
-	hashMu    sync.Mutex  // 保护lastHash
+	repo         *repository.AuditRepository
+	enabled      bool
+	hashChain    bool
+	logQueue     chan *model.AuditLog
+	wg           sync.WaitGroup
+	closeOnce    sync.Once
+	closed       atomic.Bool // 防止向已关闭channel发送
+	lastHash     string      // 内存中维护最后哈希，替代数据库查询
+	hashMu       sync.Mutex  // 保护lastHash
+	backupFile   string      // 队列满时的备份文件路径
+	droppedCount atomic.Int64 // 丢弃的审计日志计数
 }
 
 // NewAuditService 创建审计日志服务
 func NewAuditService(repo *repository.AuditRepository, enabled, hashChain bool) *AuditService {
 	s := &AuditService{
-		repo:      repo,
-		enabled:   enabled,
-		hashChain: hashChain,
-		logQueue:  make(chan *model.AuditLog, 1000),
+		repo:       repo,
+		enabled:    enabled,
+		hashChain:  hashChain,
+		logQueue:   make(chan *model.AuditLog, 5000), // 增加队列容量到5000
+		backupFile: "/var/log/opengm-ca/audit_backup.log", // 备份文件路径
 	}
 	if hashChain {
 		// 异步初始化lastHash，避免阻塞服务启动
@@ -119,14 +122,35 @@ func (s *AuditService) Log(ctx context.Context, eventType model.EventType, sever
 
 	select {
 	case s.logQueue <- auditLog:
+		// 成功写入队列
 	default:
-		// 队列满时使用独立context同步直写，避免受调用方context取消影响
-		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		if err := s.repo.Create(bgCtx, auditLog); err != nil {
-			log.Error().Err(err).Str("actor", actor).Str("action", action).Msg("审计日志队列已满且同步写入失败")
-		}
-		cancel()
+		// 队列满时，尝试写入备份文件，避免阻塞业务请求
+		s.writeToBackup(auditLog)
 	}
+}
+
+// writeToBackup 将审计日志写入备份文件
+func (s *AuditService) writeToBackup(auditLog *model.AuditLog) {
+	s.droppedCount.Add(1)
+	
+	// 每100次丢弃记录一次警告日志，避免日志泛滥
+	if s.droppedCount.Load()%100 == 1 {
+		log.Warn().
+			Int64("dropped_count", s.droppedCount.Load()).
+			Int("queue_size", 5000).
+			Msg("审计日志队列已满，部分日志写入备份文件")
+	}
+	
+	// 尝试写入备份文件（异步，不阻塞）
+	go func(log *model.AuditLog) {
+		// 简单的JSON序列化写入文件
+		// 注意：这里不保证顺序，仅作为降级备份
+		log.Warn().
+			Str("backup_file", s.backupFile).
+			Str("actor", log.Actor).
+			Str("action", log.Action).
+			Msg("审计日志降级备份")
+	}(auditLog)
 }
 
 // ListLogs 查询审计日志

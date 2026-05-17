@@ -63,6 +63,8 @@ func (r *Router) Register(engine *gin.Engine) {
 	// 全局中间件
 	engine.Use(middleware.RequestIDMiddleware())
 	engine.Use(middleware.RateLimitMiddleware(100, time.Minute))
+	// 全局请求体大小限制 (10MB)
+	engine.Use(middleware.RequestBodyLimitMiddleware(middleware.MaxRequestBodySize))
 
 	// 健康检查（公开）
 	engine.GET("/health", r.systemHandler.Status)
@@ -99,6 +101,8 @@ func (r *Router) Register(engine *gin.Engine) {
 
 			// 证书管理
 			certs := authorized.Group("/certificates")
+			// 证书申请接口使用更严格的请求体限制 (1MB)
+			certs.Use(middleware.RequestBodyLimitMiddleware(middleware.MaxCertEnrollBodySize))
 			{
 				certs.POST("/enroll", middleware.RequirePermission("CERT_ISSUE"), r.certHandler.Enroll)
 				certs.GET("", middleware.RequirePermission("CERT_READ"), r.certHandler.List)

@@ -22,7 +22,8 @@ type DB struct {
 func NewDB(cfg *config.DatabaseConfig) (*DB, error) {
 	sqldb, err := sql.Open("opengauss", cfg.RawDSN())
 	if err != nil {
-		return nil, fmt.Errorf("连接数据库失败: %w", err)
+		// 错误消息中使用脱敏DSN，避免密码泄露
+		return nil, fmt.Errorf("连接数据库失败: %w (DSN: %s)", err, cfg.DSN())
 	}
 
 	// 配置连接池
@@ -35,12 +36,15 @@ func NewDB(cfg *config.DatabaseConfig) (*DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := sqldb.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("数据库连接测试失败: %w", err)
+		// 错误消息中使用脱敏DSN
+		return nil, fmt.Errorf("数据库连接测试失败: %w (DSN: %s)", err, cfg.DSN())
 	}
 
 	db := bun.NewDB(sqldb, pgdialect.New())
 
+	// 日志输出使用脱敏DSN
 	log.Info().Str("host", cfg.Host).Int("port", cfg.Port).Str("dbname", cfg.DBName).
+		Str("user", cfg.User).Str("sslmode", cfg.SSLMode).
 		Msg("数据库连接成功")
 
 	return &DB{db}, nil
