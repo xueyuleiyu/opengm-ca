@@ -126,6 +126,8 @@ The following high and medium severity issues were fixed based on comprehensive 
 |----------|-------|--------------|
 | High | Master key source validation insufficient | `internal/crypto/keystore.go` — file permission check (≤0600), symlink detection, source type logging |
 | High | API input parameter size not limited | `internal/api/middleware/request_limit.go`, `internal/api/handler/certificate.go` — request body size limits, field length validation |
+| High | Password change API permission too strict | `internal/api/router.go` — removed USER_MANAGE requirement, allow self-change |
+| High | Frontend permission logic inconsistent | `web/index.html` — fixed menu visibility and button permissions |
 | Medium | HSM PBKDF2 iterations inconsistent | `internal/hsm/softhsm.go` — unified to 600,000 iterations for both master key and KEK derivation |
 | Medium | Database DSN could leak in logs | `internal/repository/db.go` — use redacted DSN in error messages and logs |
 | Medium | Audit queue full could block requests | `internal/service/audit.go` — increased queue capacity to 5000, added backup file mechanism |
@@ -136,6 +138,28 @@ The following high and medium severity issues were fixed based on comprehensive 
 - Unified PBKDF2 iterations (600,000) meet OWASP recommendations
 - Database password redaction prevents credential leakage in logs
 - Audit queue backup mechanism prevents service blocking under high load
+- Password self-change now available for all authenticated users
+- Frontend permissions aligned with backend API permissions
+
+### 2026-05-17 — Sixth Round: Certificate Enhancement
+
+The following certificate generation improvements were added to enhance national cryptographic compatibility:
+
+| Category | Enhancement | Implementation |
+|----------|-------------|----------------|
+| National Crypto | Added GM identity extension support | `internal/core/gm_extensions.go` — OID 1.2.156.112562.2.1.1.23 |
+| National Crypto | Added GM specific extension support | `internal/core/gm_extensions.go` — OID 2.16.840.1.113732.5 |
+| Certificate | Added CRL distribution points support | `internal/core/gm_extensions.go` — OID 2.5.29.31 |
+| Certificate | Added Netscape certificate type extension | `internal/core/gm_extensions.go` — OID 2.16.840.1.113730.4.1 |
+| Subject | Added State/Province field support | `internal/core/ca.go` — buildCertTemplate function |
+| Subject | Added Locality field support | `internal/core/ca.go` — buildCertTemplate function |
+
+**Key improvements:**
+- National cryptographic extensions improve GM/T 0015 compliance
+- CRL distribution points enable certificate revocation verification
+- Complete subject fields match standard certificate practices
+- Enhanced compatibility with national cryptographic applications
+- Certificate information completeness improved
 
 ## Cryptographic Details
 

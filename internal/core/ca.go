@@ -274,6 +274,10 @@ func (e *CAEngine) saveCAInstance(ctx context.Context, caRepo CARepository, keyE
 
 // GetCA 根据名称获取CA实例
 func (e *CAEngine) GetCA(name string) (*CAInstance, error) {
+	// 支持根CA查询
+	if e.rootCA != nil && e.rootCA.CAName == name {
+		return e.rootCA, nil
+	}
 	ca, ok := e.subCAs[name]
 	if !ok {
 		return nil, fmt.Errorf("CA %s 不存在或未加载", name)
@@ -647,16 +651,39 @@ func buildCertTemplate(req *model.CertificateRequest) (*x509.Certificate, error)
 	if err != nil {
 		return nil, fmt.Errorf("生成证书序列号失败: %w", err)
 	}
+	
+	// 构建完整的主题信息
+	subject := pkix.Name{
+		CommonName:         req.Subject.CommonName,
+		Organization:       []string{},
+		Country:            []string{},
+		OrganizationalUnit: []string{},
+		Province:           []string{}, // State/Province
+		Locality:           []string{}, // City/Locality
+	}
+	
+	// 添加可选字段
+	if req.Subject.Organization != "" {
+		subject.Organization = []string{req.Subject.Organization}
+	}
+	if req.Subject.Country != "" {
+		subject.Country = []string{req.Subject.Country}
+	}
+	if req.Subject.OrganizationalUnit != "" {
+		subject.OrganizationalUnit = []string{req.Subject.OrganizationalUnit}
+	}
+	if req.Subject.State != "" {
+		subject.Province = []string{req.Subject.State}
+	}
+	if req.Subject.Locality != "" {
+		subject.Locality = []string{req.Subject.Locality}
+	}
+	
 	template := &x509.Certificate{
 		SerialNumber: serial,
-		Subject: pkix.Name{
-			CommonName:         req.Subject.CommonName,
-			Organization:       []string{req.Subject.Organization},
-			Country:            []string{req.Subject.Country},
-			OrganizationalUnit: []string{req.Subject.OrganizationalUnit},
-		},
-		NotBefore: time.Now().Add(-1 * time.Hour),
-		NotAfter:  time.Now().AddDate(0, 0, req.ValidityDays),
+		Subject:      subject,
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().AddDate(0, 0, req.ValidityDays),
 	}
 
 	// 应用请求的 KeyUsage 和 ExtKeyUsage 扩展

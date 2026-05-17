@@ -7,8 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 
@@ -121,23 +119,10 @@ func EncodePrivateKey(privKey interface{}, algorithm string) (string, error) {
 	}
 }
 
-// EncodeSM2PrivateKey 将SM2私钥编码为PKCS#8 PEM格式
+// EncodeSM2PrivateKey 将SM2私钥编码为标准PKCS#8 PEM格式
+// 使用 smx509.MarshalPKCS8PrivateKey 确保与国密解析器兼容
 func EncodeSM2PrivateKey(privateKey *sm2.PrivateKey) (string, error) {
-	oidSM2 := asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 301}
-	rawBytes, err := asn1.Marshal(privateKey.D.Bytes())
-	if err != nil {
-		return "", fmt.Errorf("SM2私钥ASN.1编码失败: %w", err)
-	}
-	info := struct {
-		Version             int
-		PrivateKeyAlgorithm pkix.AlgorithmIdentifier
-		PrivateKey          []byte
-	}{
-		Version:             0,
-		PrivateKeyAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidSM2},
-		PrivateKey:          rawBytes,
-	}
-	privBytes, err := asn1.Marshal(info)
+	privBytes, err := smx509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {
 		return "", fmt.Errorf("SM2 PKCS#8编码失败: %w", err)
 	}
@@ -177,6 +162,7 @@ func PemEncode(data []byte, blockType string) string {
 }
 
 // ParsePrivateKeyFromPEM 从PEM解析私钥
+// 优先使用 smx509 解析以支持国密SM2算法，失败后再回退到标准库x509
 func ParsePrivateKeyFromPEM(pemData string) (interface{}, error) {
 	block, _ := pem.Decode([]byte(pemData))
 	if block == nil {
@@ -185,10 +171,18 @@ func ParsePrivateKeyFromPEM(pemData string) (interface{}, error) {
 
 	switch block.Type {
 	case "PRIVATE KEY":
+		// 优先使用 smx509 解析，支持 SM2 的 PKCS#8 格式
+		if key, err := smx509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+			return key, nil
+		}
 		return x509.ParsePKCS8PrivateKey(block.Bytes)
 	case "RSA PRIVATE KEY":
 		return x509.ParsePKCS1PrivateKey(block.Bytes)
 	case "EC PRIVATE KEY":
+		// 优先使用 smx509 解析，支持 SM2 的 SEC1 格式
+		if key, err := smx509.ParseECPrivateKey(block.Bytes); err == nil {
+			return key, nil
+		}
 		return x509.ParseECPrivateKey(block.Bytes)
 	case "SM2 PRIVATE KEY":
 		// 向后兼容：原始32字节D值

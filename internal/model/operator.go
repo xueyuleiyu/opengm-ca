@@ -6,9 +6,9 @@ import "time"
 type OperatorRole string
 
 const (
-	// RoleSysAdmin 系统管理员：负责系统配置、CA策略、证书策略
+	// RoleSysAdmin 系统管理员：负责系统配置、用户管理
 	RoleSysAdmin OperatorRole = "SYS_ADMIN"
-	// RoleSecAdmin 安全保密管理员：负责用户管理、权限分配、密钥管理
+	// RoleSecAdmin 安全保密管理员：负责证书签发/吊销/续期、CA策略、密钥管理、HSM管理
 	RoleSecAdmin OperatorRole = "SEC_ADMIN"
 	// RoleAuditor 安全审计员：负责审计日志查看、日志完整性验证（只读）
 	RoleAuditor OperatorRole = "AUDITOR"

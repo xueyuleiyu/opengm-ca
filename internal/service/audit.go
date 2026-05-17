@@ -113,6 +113,7 @@ func (s *AuditService) Log(ctx context.Context, eventType model.EventType, sever
 		EventType:  eventType,
 		Severity:   severity,
 		Actor:      actor,
+		ActorType:  "USER",
 		ActorIP:    actorIP,
 		TargetType: targetType,
 		TargetID:   targetID,

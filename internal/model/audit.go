@@ -109,9 +109,16 @@ func (a *AuditLog) toMap() map[string]interface{} {
 
 // ComputeHash 计算当前记录的哈希值
 func (a *AuditLog) ComputeHash(prevHash string) string {
-	content, err := json.Marshal(a.toMap())
-	if err != nil {
-		panic(fmt.Sprintf("审计记录序列化失败: %v", err))
+	var content []byte
+	if a.RecordContent != "" {
+		// 优先使用已存储的record_content，避免时间精度差异导致哈希不一致
+		content = []byte(a.RecordContent)
+	} else {
+		var err error
+		content, err = json.Marshal(a.toMap())
+		if err != nil {
+			panic(fmt.Sprintf("审计记录序列化失败: %v", err))
+		}
 	}
 	h := sha256.New()
 	h.Write([]byte(prevHash))
@@ -121,6 +128,10 @@ func (a *AuditLog) ComputeHash(prevHash string) string {
 
 // BuildRecordContent 构建记录内容JSON
 func (a *AuditLog) BuildRecordContent() string {
+	// 写入前统一截断时间到微秒精度，避免数据库存储截断后导致哈希不一致
+	if a.EventTime.Nanosecond()%1000 != 0 {
+		a.EventTime = a.EventTime.Truncate(time.Microsecond)
+	}
 	content, err := json.Marshal(a.toMap())
 	if err != nil {
 		panic(fmt.Sprintf("审计记录序列化失败: %v", err))

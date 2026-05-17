@@ -119,17 +119,24 @@ func (r *AuditRepository) VerifyHashChain(ctx context.Context, startID, endID in
 	result.FirstHash = logs[0].CurrHash
 	result.LastHash = logs[len(logs)-1].CurrHash
 
-	var prevHash string
-	for _, log := range logs {
-		expectedHash := log.ComputeHash(prevHash)
+	for i, log := range logs {
+		expectedHash := log.ComputeHash(log.PrevHash)
 		if expectedHash != log.CurrHash {
 			result.IsValid = false
 			result.Corrupted++
 			result.CorruptedIDs = append(result.CorruptedIDs, log.ID)
-		} else {
-			result.Verified++
+			continue
 		}
-		prevHash = log.CurrHash
+		// 验证链连续性：非首条记录的PrevHash应等于前一条的CurrHash
+		if i > 0 && log.PrevHash != logs[i-1].CurrHash {
+			result.IsValid = false
+			result.Corrupted++
+			if len(result.CorruptedIDs) == 0 || result.CorruptedIDs[len(result.CorruptedIDs)-1] != log.ID {
+				result.CorruptedIDs = append(result.CorruptedIDs, log.ID)
+			}
+			continue
+		}
+		result.Verified++
 	}
 
 	return result, nil

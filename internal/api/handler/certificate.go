@@ -28,6 +28,12 @@ func NewCertificateHandler(enrollSvc *service.EnrollmentService, mgmtSvc *servic
 
 // Enroll 证书申请
 func (h *CertificateHandler) Enroll(c *gin.Context) {
+	// 检查服务是否初始化
+	if h.enrollSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "SERVICE_UNAVAILABLE", "message": "证书申请服务未初始化，请检查主密钥配置"})
+		return
+	}
+	
 	var req model.CertificateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_PARAMETER", "message": err.Error()})
@@ -183,7 +189,7 @@ func (h *CertificateHandler) Revoke(c *gin.Context) {
 	}
 
 	var req struct {
-		Reason     int    `json:"reason" binding:"required"`
+		Reason     int    `json:"reason"`
 		ReasonText string `json:"reason_text" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -191,7 +197,7 @@ func (h *CertificateHandler) Revoke(c *gin.Context) {
 		return
 	}
 
-	// RFC 5280 吊销原因范围 0-10
+	// RFC 5280 吊销原因范围 0-10（0=unspecified，有效）
 	if req.Reason < 0 || req.Reason > 10 {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_PARAMETER", "message": "吊销原因代码无效，必须在0-10之间"})
 		return

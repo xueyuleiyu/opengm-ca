@@ -119,6 +119,8 @@ func startServer(cfg *config.Config, db *repository.DB) error {
 	caRepo := repository.NewCAChainRepository(db.DB)
 	certRepo := repository.NewCertificateRepository(db.DB)
 	keyRepo := repository.NewKeyRepository(db.DB)
+	exportReqRepo := repository.NewKeyExportRequestRepository(db.DB)
+	exportApprovalRepo := repository.NewKeyExportApprovalRepository(db.DB)
 	subjectRepo := repository.NewSubjectRepository(db.DB)
 	auditRepo := repository.NewAuditRepository(db.DB)
 	operatorRepo := repository.NewOperatorRepository(db.DB)
@@ -155,9 +157,10 @@ func startServer(cfg *config.Config, db *repository.DB) error {
 		log.Warn().Err(err).Msg("CA引擎从数据库加载失败，证书签发功能可能不可用")
 	}
 	mgmtSvc := service.NewManagementService(certRepo, caRepo, caEngine, auditSvc, cfg.CRL.NextUpdateHours, cfg.CRL.IncludeExpiredEntries)
+	// EnrollmentService必须初始化，即使keyStore为nil
+	enrollSvc = service.NewEnrollmentService(cfg, caEngine, keyStore, certRepo, keyRepo, subjectRepo, caRepo, auditSvc)
 	if keyStore != nil {
-		enrollSvc = service.NewEnrollmentService(cfg, caEngine, keyStore, certRepo, keyRepo, subjectRepo, caRepo, auditSvc)
-		exportSvc = service.NewKeyExportService(cfg, keyStore, keyRepo, operatorRepo, auditSvc)
+		exportSvc = service.NewKeyExportService(cfg, keyStore, keyRepo, exportReqRepo, exportApprovalRepo, operatorRepo, auditSvc)
 	}
 
 	// JWT Secret 安全校验（优先环境变量，拒绝弱密钥）
@@ -188,6 +191,7 @@ func startServer(cfg *config.Config, db *repository.DB) error {
 	hsmHandler := handler.NewHSMHandler(hsmProvider, auditSvc)
 	crlHandler := handler.NewCRLHandler(caEngine, certRepo, caRepo, auditSvc, cfg.CRL.NextUpdateHours)
 	ocspHandler := handler.NewOCSPHandler(certRepo, caRepo)
+	caHandler := handler.NewCAHandler(caRepo)
 
 	// 初始化 OCSP Responder（优先使用配置的正式证书）
 	if cfg.OCSP.Enabled {
@@ -209,7 +213,7 @@ func startServer(cfg *config.Config, db *repository.DB) error {
 	}
 
 	// 创建路由
-	router := api.NewRouter(cfg, mgmtSvc, enrollSvc, exportSvc, auditSvc, authHandler, opHandler, hsmHandler, crlHandler, ocspHandler, operatorRepo)
+	router := api.NewRouter(cfg, mgmtSvc, enrollSvc, exportSvc, auditSvc, authHandler, opHandler, hsmHandler, crlHandler, ocspHandler, caHandler, operatorRepo)
 	engine := gin.New()
 	engine.Use(gin.Recovery())
 	// 安全响应头中间件

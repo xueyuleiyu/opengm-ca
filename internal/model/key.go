@@ -131,3 +131,48 @@ type KeyExportResponse struct {
 	RemainingExports *int      `json:"remaining_exports,omitempty"`
 	Warning          string    `json:"warning"`
 }
+
+// KeyExportRequestStatus 导出请求状态
+type KeyExportRequestStatus string
+
+const (
+	ExportRequestPending   KeyExportRequestStatus = "PENDING"
+	ExportRequestApproved  KeyExportRequestStatus = "APPROVED"
+	ExportRequestRejected  KeyExportRequestStatus = "REJECTED"
+	ExportRequestExecuted  KeyExportRequestStatus = "EXECUTED"
+	ExportRequestExpired   KeyExportRequestStatus = "EXPIRED"
+)
+
+// KeyExportRequestRecord 私钥导出审批请求（数据库模型）
+type KeyExportRequestRecord struct {
+	ID             int64                  `bun:"id,pk,autoincrement" json:"id"`
+	RequestID      string                 `bun:"request_id,notnull,unique" json:"request_id"`
+	KeyID          string                 `bun:"key_id,notnull" json:"key_id"`
+	Requester      string                 `bun:"requester,notnull" json:"requester"`
+	Reason         string                 `bun:"reason,notnull" json:"reason"`
+	Status         KeyExportRequestStatus `bun:"status,notnull,default:'PENDING'" json:"status"`
+	ExportPassword string                 `bun:"export_password" json:"-"` // 不序列化到JSON
+	CreatedAt      time.Time              `bun:"created_at,default:current_timestamp" json:"created_at"`
+	UpdatedAt      time.Time              `bun:"updated_at,default:current_timestamp" json:"updated_at"`
+	ExpiresAt      *time.Time             `bun:"expires_at" json:"expires_at,omitempty"`
+}
+
+// TableName 返回表名
+func (k *KeyExportRequestRecord) TableName() string {
+	return "key_export_requests"
+}
+
+// KeyExportApprovalRecord 私钥导出审批记录
+type KeyExportApprovalRecord struct {
+	ID         int64      `bun:"id,pk,autoincrement" json:"id"`
+	RequestID  string     `bun:"request_id,notnull" json:"request_id"`
+	Approver   string     `bun:"approver,notnull" json:"approver"`
+	ApprovedAt *time.Time `bun:"approved_at,default:current_timestamp" json:"approved_at,omitempty"`
+	Comment    string     `bun:"comment" json:"comment,omitempty"`
+	Approved   bool       `bun:"approved,notnull,default:true" json:"approved"`
+}
+
+// TableName 返回表名
+func (k *KeyExportApprovalRecord) TableName() string {
+	return "key_export_approvals"
+}

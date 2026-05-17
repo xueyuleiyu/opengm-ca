@@ -381,6 +381,13 @@ docker build -t opengm-ca -f deployments/docker/Dockerfile .
 | GET | `/api/v1/crl/:ca_name` | 下载 CRL | 公开 |
 | POST | `/api/v1/ocsp` | OCSP 查询 | 公开 |
 | GET | `/api/v1/metrics` | Prometheus 指标 | 公开 |
+| GET | `/api/v1/ca/chain` | CA 证书链列表 | 公开 |
+| POST | `/api/v1/keys/:key_id/export-request` | 创建私钥导出申请 | `KEY_EXPORT` |
+| GET | `/api/v1/keys/export-requests` | 查询导出申请列表 | `KEY_EXPORT` |
+| POST | `/api/v1/keys/export-requests/:id/approve` | 审批通过导出申请 | `KEY_EXPORT` |
+| POST | `/api/v1/keys/export-requests/:id/reject` | 拒绝导出申请 | `KEY_EXPORT` |
+| POST | `/api/v1/keys/export-requests/:id/execute` | 执行已审批的导出 | `KEY_EXPORT` |
+| GET | `/api/v1/audit/verify` | 验证审计哈希链 | `AUDIT_VERIFY` |
 
 完整的 API 文档参考 `docs/API.md`（如果存在）或 `internal/api/router.go` 中的路由定义。
 

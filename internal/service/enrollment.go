@@ -270,6 +270,11 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 
 // validateRequest 校验证书申请请求
 func (s *EnrollmentService) validateRequest(req *model.CertificateRequest) error {
+	// 检查配置是否初始化
+	if s.cfg == nil {
+		return fmt.Errorf("服务配置未初始化")
+	}
+	
 	if req.ValidityDays <= 0 || req.ValidityDays > s.cfg.CertPolicy.MaxValidityDays {
 		return fmt.Errorf("有效期必须在1-%d天之间", s.cfg.CertPolicy.MaxValidityDays)
 	}
@@ -349,10 +354,16 @@ func (s *EnrollmentService) createKeyRecord(ctx context.Context, subjectID int, 
 		return nil, fmt.Errorf("编码私钥失败: %w", err)
 	}
 
+	if s.keyStore == nil {
+		return nil, fmt.Errorf("密钥存储服务未初始化，无法加密存储私钥（请检查主密钥配置）")
+	}
 	if err := s.keyStore.StoreKey(keyModel, []byte(privKeyPEM)); err != nil {
 		return nil, fmt.Errorf("加密存储私钥失败: %w", err)
 	}
 
+	if s.keyRepo == nil {
+		return nil, fmt.Errorf("密钥仓库未初始化")
+	}
 	if err := s.keyRepo.Create(ctx, keyModel); err != nil {
 		return nil, fmt.Errorf("保存密钥记录失败: %w", err)
 	}
@@ -488,6 +499,11 @@ func (s *EnrollmentService) signCertificate(template *x509.Certificate, pubKey i
 	caInstance, err := s.caEngine.GetCA(ca.CAName)
 	if err != nil {
 		return nil, fmt.Errorf("获取CA实例失败(%s): %w", ca.CAName, err)
+	}
+
+	// 检查CA签名器是否初始化
+	if caInstance.Signer == nil {
+		return nil, fmt.Errorf("CA %s 的签名器未初始化，请检查主密钥配置", ca.CAName)
 	}
 
 	// 添加关键PKI扩展

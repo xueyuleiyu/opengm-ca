@@ -25,9 +25,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 .btn-danger:hover{background:#c5221f}
 .btn-success{background:#34a853;color:white}
 .btn-success:hover{background:#2e7d32}
+.btn-warning{background:#f9a825;color:#333}
+.btn-warning:hover{background:#f57f17}
 .alert{padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:13px;display:none}
 .alert-error{background:#fce8e8;color:#c5221f;border:1px solid #f5c6cb}
 .alert-success{background:#e6f4ea;color:#137333;border:1px solid #c3e6cb}
+.alert-info{background:#e3f2fd;color:#1565c0;border:1px solid #bbdefb}
 .app-container{display:flex;min-height:100vh}
 .sidebar{width:220px;background:#1a237e;color:white;padding:20px 0;flex-shrink:0;overflow-y:auto}
 .sidebar .logo{padding:0 20px 20px;font-size:18px;font-weight:bold;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:10px}
@@ -63,11 +66,15 @@ tr:hover{background:#f8f9fa}
 .badge-sys{background:#e8eaf6;color:#1a237e}
 .badge-sec{background:#fce8e8;color:#c5221f}
 .badge-audit{background:#e6f4ea;color:#137333}
+.badge-warn{background:#fef3e8;color:#b06000}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
 .actions .btn{width:auto;padding:10px 24px}
-.loading{text-align:center;padding:40px;color:#999}
-.empty{text-align:center;padding:40px;color:#999}
+.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;color:#999;gap:12px}
+.loading-spinner{width:28px;height:28px;border:3px solid #e0e0e0;border-top-color:#1a73e8;border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;color:#999;gap:12px}
+.empty-icon{font-size:36px;opacity:.4}
 .cert-pem{background:#f5f5f5;padding:12px;border-radius:6px;font-family:"Courier New",monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;border:1px solid #e0e0e0}
 .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:100}
 .modal-overlay.active{display:flex}
@@ -88,6 +95,22 @@ tr:hover{background:#f8f9fa}
 .status-dot.ok{background:#34a853}
 .status-dot.warn{background:#fbbc04}
 .status-dot.err{background:#ea4335}
+.pagination-info{font-size:12px;color:#666;padding:12px 0;text-align:right}
+.toast-container{position:fixed;top:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:10px}
+.toast{background:white;border-radius:8px;padding:14px 18px;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:flex;align-items:center;gap:10px;font-size:13px;animation:toastIn .3s ease;max-width:320px}
+.toast.error{border-left:4px solid #ea4335}
+.toast.success{border-left:4px solid #34a853}
+.toast.info{border-left:4px solid #1a73e8}
+@keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+.detail-modal .modal{max-width:700px}
+.detail-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
+.detail-row:last-child{border-bottom:none}
+.detail-label{color:#666;flex-shrink:0;margin-right:16px}
+.detail-value{color:#333;text-align:right;word-break:break-word}
+.switch{display:inline-block;width:36px;height:20px;border-radius:10px;background:#e0e0e0;position:relative;cursor:pointer;transition:background .2s}
+.switch.on{background:#34a853}
+.switch::after{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:white;top:2px;left:2px;transition:left .2s}
+.switch.on::after{left:18px}
 </style>
 </head>
 <body>
@@ -116,6 +139,7 @@ tr:hover{background:#f8f9fa}
 <div class="nav-divider"></div>
 <div class="nav-item sys-admin-only hidden" data-page="operators" onclick="showPage('operators')"><span class="icon">&#128100;</span>操作员管理</div>
 <div class="nav-item sec-admin-only hidden" data-page="hsm" onclick="showPage('hsm')"><span class="icon">&#128273;</span>HSM 管理</div>
+<div class="nav-item sec-admin-only hidden" data-page="exportApprovals" onclick="showPage('exportApprovals')"><span class="icon">&#128220;</span>导出审批</div>
 <div class="nav-item sys-admin-only hidden" data-page="config" onclick="showPage('config')"><span class="icon">&#9881;</span>系统配置</div>
 <div class="nav-divider"></div>
 <div class="nav-item" data-page="profile" onclick="showPage('profile')"><span class="icon">&#128100;</span>个人中心</div>
@@ -201,7 +225,14 @@ tr:hover{background:#f8f9fa}
 </div>
 <div class="form-row">
 <div class="form-group"><label>国家 (C) *</label><input type="text" id="enrollCountry" value="CN" maxlength="2"></div>
+<div class="form-group"><label>省份 (ST)</label><input type="text" id="enrollState" placeholder="Beijing"></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>城市 (L)</label><input type="text" id="enrollLocality" placeholder="Beijing"></div>
 <div class="form-group"><label>组织单元 (OU)</label><input type="text" id="enrollOU" placeholder="IT Department"></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>邮箱 (Email)</label><input type="email" id="enrollEmail" placeholder="admin@example.com"></div>
 </div>
 <div class="form-group"><label>DNS 别名 (每行一个)</label><textarea id="enrollSANs" rows="3" placeholder="www.example.com&#10;example.com"></textarea></div>
 <div class="form-group"><label><input type="checkbox" id="enrollExportable"> 允许私钥导出（申请后可通过前端导出明文私钥）</label></div>
@@ -233,7 +264,7 @@ tr:hover{background:#f8f9fa}
 <div class="panel" style="background:#fff8e1;border-left:4px solid #f9a825">
 <h4 style="margin-bottom:10px;color:#b06000">&#9432; 三员管理说明</h4>
 <p style="font-size:13px;color:#666;line-height:1.6">
-<b>系统管理员(SYS_ADMIN)</b>：负责系统配置、CA策略、证书策略管理、用户管理<br>
+<b>系统管理员(SYS_ADMIN)</b>：负责系统配置、用户管理<br>
 <b>安全保密管理员(SEC_ADMIN)</b>：负责证书签发、吊销、密钥管理、HSM管理<br>
 <b>安全审计员(AUDITOR)</b>：仅可查看审计日志，不可执行管理操作（只读）<br>
 <small>注：三个角色权限相互分离、相互制约，符合等保2.0要求。</small>
@@ -279,6 +310,23 @@ tr:hover{background:#f8f9fa}
 </div>
 </div>
 
+<!-- Export Approvals -->
+<div id="page-exportApprovals" class="page-section">
+<div class="panel">
+<div class="panel-header"><h3>私钥导出审批管理</h3><button class="btn btn-secondary" onclick="loadExportApprovals()">刷新</button></div>
+<div id="exportApprovalsContent"><div class="loading">加载中...</div></div>
+</div>
+<div class="panel" style="background:#fff8e1;border-left:4px solid #f9a825">
+<h4 style="margin-bottom:10px;color:#b06000">&#9432; 审批流程说明</h4>
+<p style="font-size:13px;color:#666;line-height:1.6">
+1. 安全管理员提交私钥导出申请，需说明导出原因<br>
+2. 至少 <b>2</b> 名审批人（安全管理员）审批通过后，方可执行导出<br>
+3. 审批通过的申请有效期为 <b>24小时</b>，过期需重新申请<br>
+4. 导出时可选择加密密码保护（留空则明文导出）
+</p>
+</div>
+</div>
+
 <!-- Profile -->
 <div id="page-profile" class="page-section">
 <div class="panel">
@@ -304,6 +352,9 @@ tr:hover{background:#f8f9fa}
 
 </div>
 </div>
+
+<!-- Toast Container -->
+<div id="toastContainer" class="toast-container"></div>
 
 <!-- Modal: Create Operator -->
 <div class="modal-overlay" id="createOperatorModal">
@@ -365,6 +416,51 @@ tr:hover{background:#f8f9fa}
 </div>
 </div>
 
+<!-- Modal: Export Key -->
+<div class="modal-overlay" id="exportKeyModal">
+<div class="modal">
+<span class="modal-close" onclick="closeModal('exportKeyModal')">&times;</span>
+<h3>私钥导出</h3>
+<div id="exportKeyAlert" class="alert"></div>
+<div class="form-group"><label>当前登录密码 *</label><input type="password" id="exportCurrentPwd" placeholder="用于二次认证"></div>
+<div class="form-group"><label>导出加密密码（留空则明文导出）</label><input type="password" id="exportPwd" placeholder="至少12位，含大小写+数字+特殊字符"></div>
+<div class="form-group"><label>导出原因 *</label><input type="text" id="exportReason" value="管理员导出私钥" placeholder="至少10个字符"></div>
+<div class="actions">
+<button class="btn btn-primary" onclick="doExportKey()">确认导出</button>
+<button class="btn btn-secondary" onclick="closeModal('exportKeyModal')">取消</button>
+</div>
+</div>
+</div>
+
+<!-- Modal: Export Request -->
+<div class="modal-overlay" id="exportRequestModal">
+<div class="modal">
+<span class="modal-close" onclick="closeModal('exportRequestModal')">&times;</span>
+<h3>提交私钥导出申请</h3>
+<div id="exportRequestAlert" class="alert"></div>
+<div class="form-group"><label>导出原因 *</label><input type="text" id="exportReqReason" value="管理员申请导出私钥" placeholder="至少10个字符"></div>
+<div class="form-group"><label>导出加密密码（留空则明文导出）</label><input type="password" id="exportReqPwd" placeholder="至少12位，含大小写+数字+特殊字符"></div>
+<div class="actions">
+<button class="btn btn-primary" onclick="doCreateExportRequest()">提交申请</button>
+<button class="btn btn-secondary" onclick="closeModal('exportRequestModal')">取消</button>
+</div>
+</div>
+</div>
+
+<!-- Modal: Password Confirm (for execute export) -->
+<div class="modal-overlay" id="pwdConfirmModal">
+<div class="modal">
+<span class="modal-close" onclick="closeModal('pwdConfirmModal')">&times;</span>
+<h3>二次认证</h3>
+<div id="pwdConfirmAlert" class="alert"></div>
+<div class="form-group"><label>当前登录密码 *</label><input type="password" id="pwdConfirmInput" placeholder="请输入当前登录密码"></div>
+<div class="actions">
+<button class="btn btn-primary" onclick="doExecuteExport()">确认导出</button>
+<button class="btn btn-secondary" onclick="closeModal('pwdConfirmModal')">取消</button>
+</div>
+</div>
+</div>
+
 <!-- Modal: Result -->
 <div class="modal-overlay" id="resultModal">
 <div class="modal">
@@ -374,12 +470,110 @@ tr:hover{background:#f8f9fa}
 </div>
 </div>
 
+<!-- Modal: Detail View -->
+<div class="modal-overlay detail-modal" id="detailModal">
+<div class="modal">
+<span class="modal-close" onclick="closeModal('detailModal')">&times;</span>
+<h3 id="detailModalTitle">详情</h3>
+<div id="detailModalContent"></div>
+</div>
+</div>
+
 <script>
 const API_BASE='';
 let token=sessionStorage.getItem('ca_token')||'';
 let user=JSON.parse(sessionStorage.getItem('ca_user')||'{}');
 
 if(token){showApp();loadDashboard();}
+
+// ---- Utility Functions ----
+function formatDateTime(iso){
+if(!iso)return '-';
+try{
+const d=new Date(iso);
+const yyyy=d.getFullYear();
+const MM=String(d.getMonth()+1).padStart(2,'0');
+const dd=String(d.getDate()).padStart(2,'0');
+const hh=String(d.getHours()).padStart(2,'0');
+const mm=String(d.getMinutes()).padStart(2,'0');
+const ss=String(d.getSeconds()).padStart(2,'0');
+return `${yyyy}-${MM}-${dd} ${hh}:${mm}:${ss}`;
+}catch(e){return iso;}
+}
+function formatDate(iso){
+if(!iso)return '-';
+try{
+const d=new Date(iso);
+const yyyy=d.getFullYear();
+const MM=String(d.getMonth()+1).padStart(2,'0');
+const dd=String(d.getDate()).padStart(2,'0');
+return `${yyyy}-${MM}-${dd}`;
+}catch(e){return iso;}
+}
+function formatRelativeTime(iso){
+if(!iso)return '-';
+try{
+const d=new Date(iso);
+const now=new Date();
+const diff=Math.floor((now-d)/1000);
+if(diff<60)return '刚刚';
+if(diff<3600)return Math.floor(diff/60)+'分钟前';
+if(diff<86400)return Math.floor(diff/3600)+'小时前';
+if(diff<2592000)return Math.floor(diff/86400)+'天前';
+return formatDate(iso);
+}catch(e){return iso;}
+}
+function showLoading(id){
+const el=document.getElementById(id);
+if(el)el.innerHTML='<div class="loading"><div class="loading-spinner"></div><span>正在加载数据，请稍候...</span></div>';
+}
+function showEmpty(id,msg,icon){
+const el=document.getElementById(id);
+if(el)el.innerHTML='<div class="empty"><div class="empty-icon">'+(icon||'&#128196;')+'</div><span>'+(msg||'暂无数据')+'</span></div>';
+}
+function showError(id,msg){
+const el=document.getElementById(id);
+if(el)el.innerHTML='<div class="empty"><div class="empty-icon">&#9888;</div><span>'+(msg||'加载失败，请稍后重试')+'</span></div>';
+}
+let toastTimer=null;
+function showToast(msg,type){
+type=type||'info';
+const container=document.getElementById('toastContainer');
+const toast=document.createElement('div');
+const icons={error:'&#10060;',success:'&#10004;',info:'&#8505;'};
+toast.className='toast '+type;
+toast.innerHTML='<span style="font-size:16px">'+icons[type]+'</span><span>'+msg+'</span>';
+container.appendChild(toast);
+setTimeout(()=>{toast.style.opacity='0';toast.style.transform='translateX(20px)';toast.style.transition='all .3s ease';setTimeout(()=>toast.remove(),300);},4000);
+}
+function renderPagination(elId,page,pageSize,total,loadFn){
+const el=document.getElementById(elId);
+if(!el||!total)return;
+const totalPages=Math.ceil(total/pageSize);
+if(totalPages<=1)return;
+let html='<div class="pagination-info">共 '+total+' 条，第 '+page+'/'+totalPages+' 页';
+if(page>1)html+=' <button class="btn btn-secondary" style="padding:4px 12px;font-size:12px" onclick="'+loadFn+'('+(page-1)+')">上一页</button>';
+if(page<totalPages)html+=' <button class="btn btn-secondary" style="padding:4px 12px;font-size:12px" onclick="'+loadFn+'('+(page+1)+')">下一页</button>';
+html+='</div>';
+const existing=el.querySelector('.pagination-info');
+if(existing)existing.remove();
+el.insertAdjacentHTML('beforeend',html);
+}
+function showDetail(title,obj){
+let html='';
+for(const[k,v]of Object.entries(obj)){
+if(v===null||v===undefined||v==='')continue;
+let display=v;
+if(k.includes('time')||k.includes('at')||k.includes('Time'))display=formatDateTime(v);
+else if(k.includes('pem')||k.includes('PEM'))display='<div class="cert-pem">'+v+'</div>';
+else if(typeof v==='boolean')display=v?'是':'否';
+else if(typeof v==='object')display='<pre style="font-size:12px;background:#f8f9fa;padding:8px;border-radius:4px;overflow:auto;max-height:120px">'+JSON.stringify(v,null,2)+'</pre>';
+html+='<div class="detail-row"><span class="detail-label">'+k+'</span><span class="detail-value">'+display+'</span></div>';
+}
+document.getElementById('detailModalTitle').textContent=title;
+document.getElementById('detailModalContent').innerHTML=html;
+document.getElementById('detailModal').classList.add('active');
+}
 
 function showAlert(id,msg,type){
 const el=document.getElementById(id);
@@ -395,8 +589,25 @@ if(body)opts.body=JSON.stringify(body);
 try{
 const res=await fetch(API_BASE+path,opts);
 if(res.status===401){sessionStorage.removeItem('ca_token');sessionStorage.removeItem('ca_user');location.reload();return{code:'UNAUTHORIZED'};}
-if(res.status===403)return{code:'FORBIDDEN',message:'权限不足，无法执行此操作'};
-return await res.json();
+if(res.status===403){
+  // 优先尝试解析后端返回的详细错误码（如 EXPORT_DENIED）
+  const text=await res.text();
+  if(text&&text.trim()){
+    try{const data=JSON.parse(text);if(data&&data.code)return data;}catch(e){}
+  }
+  return{code:'FORBIDDEN',message:'权限不足，无法执行此操作'};
+}
+// 检查响应是否为空
+const text=await res.text();
+if(!text||text.trim()===''){
+return{code:'EMPTY_RESPONSE',message:'服务器返回空响应'};
+}
+// 尝试解析JSON
+try{
+return JSON.parse(text);
+}catch(parseError){
+return{code:'PARSE_ERROR',message:'服务器返回格式错误: '+parseError.message};
+}
 }catch(e){return{code:'NETWORK_ERROR',message:e.message};}
 }
 
@@ -436,13 +647,15 @@ token='';user={};
 sessionStorage.removeItem('ca_token');sessionStorage.removeItem('ca_user');
 document.getElementById('appPage').classList.add('hidden');
 document.getElementById('loginPage').classList.remove('hidden');
+document.getElementById('username').value='';
+document.getElementById('password').value='';
 }
 
 function showPage(name){
 document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
 const nav=document.querySelector('.nav-item[data-page="'+name+'"]');
 if(nav)nav.classList.add('active');
-const titles={dashboard:'仪表盘',caChain:'CA 证书链',certificates:'证书管理',enroll:'申请证书',audit:'审计日志',operators:'操作员管理',hsm:'HSM 管理',config:'系统配置',profile:'个人中心'};
+const titles={dashboard:'仪表盘',caChain:'CA 证书链',certificates:'证书管理',enroll:'申请证书',audit:'审计日志',operators:'操作员管理',hsm:'HSM 管理',config:'系统配置',exportApprovals:'导出审批',profile:'个人中心'};
 document.getElementById('pageTitle').textContent=titles[name]||name;
 document.querySelectorAll('.page-section').forEach(p=>p.classList.remove('active'));
 const page=document.getElementById('page-'+name);
@@ -453,6 +666,8 @@ if(name==='certificates')loadCertificates();
 if(name==='audit')loadAudit();
 if(name==='operators')loadOperators();
 if(name==='hsm')loadHSM();
+if(name==='exportApprovals')loadExportApprovals();
+if(name==='config')loadConfig();
 if(name==='profile')loadProfile();
 }
 
@@ -467,13 +682,16 @@ const s=health.data.stats||{};
 document.getElementById('certCount').textContent=s.active_certificates||0;
 document.getElementById('revokedCount').textContent=s.revoked_certificates||0;
 }
-renderCaSummary([
-{id:1,ca_name:'openGM Root CA',ca_type:'ROOT',algorithm:'SM2',valid_to:'2046-04-18'},
-{id:2,ca_name:'SSL-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',valid_to:'2046-04-18'},
-{id:3,ca_name:'AUTH-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',valid_to:'2046-04-18'},
-{id:4,ca_name:'VPN-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',valid_to:'2046-04-18'}
-]);
+const caData=await api('GET','/api/v1/ca/chain');
+if(caData.code==='OK'&&caData.data&&caData.data.length){
+renderCaSummary(caData.data);
+}
+// 仅SEC_ADMIN/SUPER_ADMIN加载HSM仪表盘
+if(user.role==='SEC_ADMIN'||user.role==='SUPER_ADMIN'){
 loadHSMStatusDashboard();
+}else{
+document.getElementById('hsmStatusDashboard').innerHTML='<p><span class="status-dot ok"></span>HSM 状态: 无权限查看详情</p>';
+}
 }catch(e){console.error(e);}
 }
 
@@ -486,38 +704,85 @@ el.innerHTML='<p><span class="status-dot ok"></span><b>'+data.data.type+'</b> &n
 }
 
 function renderCaSummary(list){
-document.getElementById('caChainSummary').innerHTML=list.map(item=>`<tr><td>${item.id}</td><td>${item.ca_name}</td><td><span class="badge ${item.ca_type==='ROOT'?'badge-root':'badge-inter'}">${item.ca_type==='ROOT'?'根CA':'中间CA'}</span></td><td><span class="tag tag-sm2">${item.algorithm}</span></td><td>${item.valid_to?item.valid_to.substring(0,10):'-'}</td></tr>`).join('');
+const typeMap={'ROOT':'根CA','INTERMEDIATE':'中间CA'};
+document.getElementById('caChainSummary').innerHTML=list.map(item=>`<tr><td>${item.id}</td><td style="font-weight:500">${item.ca_name}</td><td><span class="badge ${item.ca_type==='ROOT'?'badge-root':'badge-inter'}">${typeMap[item.ca_type]||item.ca_type}</span></td><td><span class="tag tag-sm2">${item.algorithm}</span></td><td style="font-size:12px;color:#666;white-space:nowrap">${formatDate(item.valid_to)}</td></tr>`).join('');
 }
 
 async function loadCaChain(){
-renderCaSummary([
-{id:1,ca_name:'openGM Root CA',ca_type:'ROOT',algorithm:'SM2',serial_number:'1',valid_to:'2046-04-18'},
-{id:2,ca_name:'SSL-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',serial_number:'ica-SSL-CA-1',valid_to:'2046-04-18'},
-{id:3,ca_name:'AUTH-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',serial_number:'ica-AUTH-CA-1',valid_to:'2046-04-18'},
-{id:4,ca_name:'VPN-CA',ca_type:'INTERMEDIATE',algorithm:'SM2',serial_number:'ica-VPN-CA-1',valid_to:'2046-04-18'}
-]);
+const el=document.getElementById('caChainTable');
+if(el)el.innerHTML='<tr><td colspan="6"><div class="loading"><div class="loading-spinner"></div><span>正在加载...</span></div></td></tr>';
+const data=await api('GET','/api/v1/ca/chain');
+if(data.code!=='OK'){
+if(el)el.innerHTML='<tr><td colspan="6"><div class="empty"><div class="empty-icon">&#9888;</div><span>加载失败</span></div></td></tr>';
+return;
+}
+if(!data.data||!data.data.length){
+if(el)el.innerHTML='<tr><td colspan="6"><div class="empty"><div class="empty-icon">&#128274;</div><span>暂无CA证书链数据</span></div></td></tr>';
+return;
+}
+renderCaSummary(data.data);
+const root=data.data.find(c=>c.ca_type==='ROOT');
+if(root&&root.cert_pem){
+document.getElementById('rootCertPem').textContent=root.cert_pem;
+}else{
 document.getElementById('rootCertPem').textContent='证书 PEM 内容需从数据库导出查看';
+}
+if(el){
+const typeMap={'ROOT':'根CA','INTERMEDIATE':'中间CA'};
+const typeClass={'ROOT':'badge-root','INTERMEDIATE':'badge-inter'};
+el.innerHTML=data.data.map(c=>`<tr><td>${c.id}</td><td style="font-weight:500">${c.ca_name}</td><td><span class="badge ${typeClass[c.ca_type]||''}">${typeMap[c.ca_type]||c.ca_type}</span></td><td><span class="tag tag-sm2">${c.algorithm}</span></td><td style="font-family:monospace;font-size:12px">${c.serial_number}</td><td>${formatDate(c.valid_to)}</td></tr>`).join('');
+}
 }
 
 const certCache={};
 
-async function loadCertificates(){
+async function loadCertificates(page){
+page=page||1;
 const el=document.getElementById('certListContent');
-el.innerHTML='<div class="loading">加载中...</div>';
-const data=await api('GET','/api/v1/certificates?page=1&page_size=20');
-if(data.code!=='OK'||!data.data||!data.data.items||!data.data.items.length){
-el.innerHTML='<div class="empty">暂无证书，请前往"申请证书"页面创建</div>';return;
+showLoading('certListContent');
+const statusFilter=document.getElementById('certFilterStatus').value;
+const cnFilter=document.getElementById('certFilterCN').value.trim();
+let url='/api/v1/certificates?page='+page+'&page_size=10';
+if(statusFilter)url+='&status='+statusFilter;
+if(cnFilter)url+='&cn='+encodeURIComponent(cnFilter);
+const data=await api('GET',url);
+if(data.code!=='OK'){showError('certListContent',data.message||'加载证书列表失败');return;}
+if(!data.data||!data.data.items||!data.data.items.length){
+showEmpty('certListContent','暂无证书，请前往"申请证书"页面创建','&#128441;');return;
 }
 const list=data.data.items;
 list.forEach(c=>certCache[c.id]=c);
-// 权限检查：只有SEC_ADMIN和SUPER_ADMIN可以吊销证书和导出私钥
 const canRevoke=user.role==='SEC_ADMIN'||user.role==='SUPER_ADMIN';
 const canExportKey=user.role==='SEC_ADMIN'||user.role==='SUPER_ADMIN';
-el.innerHTML='<table><thead><tr><th>ID</th><th>类型</th><th>主题</th><th>序列号</th><th>状态</th><th>有效期至</th><th>操作</th></tr></thead><tbody>'+list.map(c=>{
-const revokeBtn=canRevoke?`<button class="btn btn-danger" onclick="revokeCert(${c.id})">吊销</button>`:'';
-const exportKeyBtn=(c.key_id&&canExportKey)?`<button class="btn btn-warning" onclick="exportPrivateKey('${c.key_id}')">导出私钥</button>`:'';
-return `<tr><td>${c.id}</td><td>${c.cert_type}</td><td>${c.subject_dn}</td><td>${c.serial_number}</td><td><span class="badge badge-${c.status?c.status.toLowerCase():'valid'}">${c.status}</span></td><td>${c.valid_to?c.valid_to.substring(0,10):'-'}</td><td class="action-btns"><button class="btn btn-secondary" onclick="downloadCertPEM(${c.id})">导出PEM</button>${exportKeyBtn}${revokeBtn}</td></tr>`;
+const statusMap={'VALID':'有效','REVOKED':'已吊销','EXPIRED':'已过期'};
+const statusClass={'VALID':'badge-valid','REVOKED':'badge-revoked','EXPIRED':'badge-expired'};
+el.innerHTML='<table><thead><tr><th>ID</th><th>类型</th><th>主题</th><th>序列号</th><th>状态</th><th>有效期</th><th>操作</th></tr></thead><tbody>'+list.map(c=>{
+const sc=statusClass[c.status]||'badge-valid';
+const st=statusMap[c.status]||c.status;
+const revokeBtn=canRevoke&&c.status==='VALID'?`<button class="btn btn-danger" onclick="revokeCert(${c.id})">吊销</button>`:'';
+const exportKeyBtn=(c.key_id&&canExportKey&&c.status==='VALID')?`<button class="btn btn-warning" onclick="exportPrivateKey('${c.key_id}')">导出私钥</button>`:'';
+return `<tr><td>${c.id}</td><td><span class="tag tag-sm2">${c.cert_type}</span></td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.subject_dn}">${c.subject_dn}</td><td style="font-size:11px;color:#666">${c.serial_number.substring(0,16)}...</td><td><span class="badge ${sc}">${st}</span></td><td>${formatDate(c.valid_from)} ~ ${formatDate(c.valid_to)}</td><td class="action-btns"><button class="btn btn-secondary" onclick="showCertDetail(${c.id})">详情</button><button class="btn btn-secondary" onclick="downloadCertPEM(${c.id})">导出PEM</button>${exportKeyBtn}${revokeBtn}</td></tr>`;
 }).join('')+'</tbody></table>';
+renderPagination('certListContent',data.data.page||page,data.data.page_size||10,data.data.total||0,'loadCertificates');
+}
+
+function showCertDetail(certId){
+const c=certCache[certId];
+if(!c)return;
+showDetail('证书详情 (ID: '+certId+')',{
+'证书类型':c.cert_type,
+'序列号':c.serial_number,
+'主题DN':c.subject_dn,
+'颁发者DN':c.issuer_dn,
+'算法':c.public_key_alg,
+'状态':c.status,
+'生效时间':c.valid_from,
+'过期时间':c.valid_to,
+'签发人':c.issued_by,
+'签发方式':c.issued_via,
+'签发时间':c.issued_at,
+'证书PEM':c.cert_pem
+});
 }
 
 function downloadCertPEM(certId){
@@ -533,26 +798,147 @@ a.click();
 URL.revokeObjectURL(url);
 }
 
+let pendingExportKeyId='';
+
 async function exportPrivateKey(keyId){
-if(!confirm('⚠️ 明文私钥导出可能导致证书体系泄露，确认继续？'))return;
-const data=await api('POST',`/api/v1/keys/${keyId}/export`,{reason:'管理员导出',export_format:'PEM'});
+pendingExportKeyId=keyId;
+showAlert('exportKeyAlert','','error');
+document.getElementById('exportCurrentPwd').value='';
+document.getElementById('exportPwd').value='';
+document.getElementById('exportReason').value='管理员导出私钥';
+showModal('exportKeyModal');
+}
+
+async function doExportKey(){
+const currentPwd=document.getElementById('exportCurrentPwd').value;
+const password=document.getElementById('exportPwd').value;
+const reason=document.getElementById('exportReason').value;
+if(!currentPwd){showAlert('exportKeyAlert','必须提供当前登录密码进行二次认证','error');return;}
+if(!reason||reason.length<10){showAlert('exportKeyAlert','导出原因至少10个字符','error');return;}
+showAlert('exportKeyAlert','正在导出，请稍候...','success');
+const data=await api('POST',`/api/v1/keys/${pendingExportKeyId}/export`,{
+reason:reason,
+export_format:'PEM',
+password:password,
+current_password:currentPwd
+});
+if(data.code==='EXPORT_DENIED'&&data.message&&data.message.includes('需要审批')){
+// 需要审批，自动提交申请
+showAlert('exportKeyAlert','该密钥导出需要审批，正在提交申请...','success');
+const reqData=await api('POST',`/api/v1/keys/${pendingExportKeyId}/export-request`,{
+reason:reason,
+password:password
+});
+if(reqData.code==='OK'){
+closeModal('exportKeyModal');
+showToast('导出申请已提交，请前往"导出审批"页面查看进度','success');
+loadExportApprovals();
+showPage('exportApprovals');
+}else{
+showAlert('exportKeyAlert',reqData.message||'申请提交失败','error');
+}
+}else if(data.code==='OK'){
+closeModal('exportKeyModal');
+const blob=new Blob([data.data.private_key_pem],{type:'text/plain'});
+const url=URL.createObjectURL(blob);
+const a=document.createElement('a');
+a.href=url;
+a.download=`private-key-${pendingExportKeyId}.pem`;
+a.click();
+URL.revokeObjectURL(url);
+showToast('私钥导出成功！'+(password?'':'⚠️ 注意：您选择了明文导出，请确保安全传输和存储'),'success');
+}else{
+showAlert('exportKeyAlert',data.message||'导出失败','error');
+}
+}
+
+async function doCreateExportRequest(){
+const reason=document.getElementById('exportReqReason').value;
+const password=document.getElementById('exportReqPwd').value;
+if(!reason||reason.length<10){showAlert('exportRequestAlert','导出原因至少10个字符','error');return;}
+const data=await api('POST',`/api/v1/keys/${pendingExportKeyId}/export-request`,{reason:reason,password:password});
+if(data.code==='OK'){
+closeModal('exportRequestModal');
+showToast('导出申请已提交，请等待审批','success');
+loadExportApprovals();
+showPage('exportApprovals');
+}else{
+showAlert('exportRequestAlert',data.message||'申请提交失败','error');
+}
+}
+
+async function loadExportApprovals(){
+const el=document.getElementById('exportApprovalsContent');
+showLoading('exportApprovalsContent');
+const data=await api('GET','/api/v1/keys/export-requests?page=1&page_size=50');
+if(data.code!=='OK'){showError('exportApprovalsContent',data.message||'加载导出申请失败');return;}
+if(!data.data||!data.data.items||!data.data.items.length){
+showEmpty('exportApprovalsContent','暂无导出申请','&#128220;');return;
+}
+const list=data.data.items;
+const canApprove=user.role==='SUPER_ADMIN'||user.role==='SEC_ADMIN';
+const statusMap={'PENDING':'待审批','APPROVED':'已通过','REJECTED':'已拒绝','EXECUTED':'已执行','EXPIRED':'已过期'};
+const statusClass={'PENDING':'badge-warn','APPROVED':'badge-valid','REJECTED':'badge-revoked','EXECUTED':'badge-sys','EXPIRED':'badge-expired'};
+el.innerHTML='<table><thead><tr><th>申请ID</th><th>密钥ID</th><th>申请人</th><th>原因</th><th>状态</th><th>申请时间</th><th>过期时间</th><th>操作</th></tr></thead><tbody>'+list.map(r=>{
+const statusText=statusMap[r.status]||r.status;
+const sc=statusClass[r.status]||'';
+let actions='';
+if(r.status==='PENDING'&&canApprove){
+actions=`<button class="btn btn-primary" style="padding:4px 10px" onclick="approveExportRequest('${r.request_id}')">通过</button> <button class="btn btn-danger" style="padding:4px 10px" onclick="rejectExportRequest('${r.request_id}')">拒绝</button>`;
+}
+if(r.status==='APPROVED'&&r.requester===user.username){
+actions+=` <button class="btn btn-warning" style="padding:4px 10px" onclick="executeExportRequest('${r.request_id}')">执行导出</button>`;
+}
+return `<tr><td style="font-family:monospace;font-size:12px" title="${r.request_id}">${r.request_id.substring(0,10)}...</td><td style="font-family:monospace;font-size:12px" title="${r.key_id}">${r.key_id.substring(0,10)}...</td><td>${r.requester}</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td><td><span class="badge ${sc}">${statusText}</span></td><td style="font-size:12px;color:#666;white-space:nowrap">${formatDateTime(r.created_at)}</td><td style="font-size:12px;color:#666;white-space:nowrap">${formatDateTime(r.expires_at)}</td><td class="action-btns">${actions||'-'}</td></tr>`;
+}).join('')+'</tbody></table>';
+}
+
+async function approveExportRequest(requestId){
+const comment=prompt('请输入审批意见（可选）')||'';
+if(!confirm('确认通过该导出申请？'))return;
+const data=await api('POST',`/api/v1/keys/export-requests/${requestId}/approve`,{comment:comment});
+if(data.code==='OK'){showToast('审批通过','success');loadExportApprovals();}else{showToast(data.message||'审批失败','error');}
+}
+
+async function rejectExportRequest(requestId){
+const comment=prompt('请输入拒绝原因')||'';
+if(!comment){showToast('请提供拒绝原因','error');return;}
+if(!confirm('确认拒绝该导出申请？'))return;
+const data=await api('POST',`/api/v1/keys/export-requests/${requestId}/reject`,{comment:comment});
+if(data.code==='OK'){showToast('已拒绝该申请','success');loadExportApprovals();}else{showToast(data.message||'操作失败','error');}
+}
+
+let pendingExecuteRequestId='';
+async function executeExportRequest(requestId){
+pendingExecuteRequestId=requestId;
+document.getElementById('pwdConfirmInput').value='';
+showModal('pwdConfirmModal');
+}
+async function doExecuteExport(){
+const currentPwd=document.getElementById('pwdConfirmInput').value;
+if(!currentPwd){showAlert('pwdConfirmAlert','必须提供当前登录密码','error');return;}
+closeModal('pwdConfirmModal');
+const data=await api('POST',`/api/v1/keys/export-requests/${pendingExecuteRequestId}/execute`,{current_password:currentPwd});
 if(data.code==='OK'){
 const blob=new Blob([data.data.private_key_pem],{type:'text/plain'});
 const url=URL.createObjectURL(blob);
 const a=document.createElement('a');
 a.href=url;
-a.download=`private-key-${keyId}.pem`;
+a.download=`private-key-${data.data.key_id}.pem`;
 a.click();
 URL.revokeObjectURL(url);
+showToast('私钥导出成功！','success');
+loadExportApprovals();
 }else{
-alert(data.message||'导出失败');
+showToast(data.message||'导出失败','error');
 }
+pendingExecuteRequestId='';
 }
 
 async function revokeCert(id){
 if(!confirm('确定要吊销该证书吗？此操作不可逆！'))return;
-const data=await api('POST','/api/v1/certificates/'+id+'/revoke',{reason:'管理员吊销',reason_code:0});
-if(data.code==='OK'){alert('证书已吊销');loadCertificates();}else{alert(data.message||'吊销失败');}
+const data=await api('POST','/api/v1/certificates/'+id+'/revoke',{reason:0,reason_text:'管理员吊销'});
+if(data.code==='OK'){showToast('证书已吊销','success');loadCertificates();}else{showToast(data.message||'吊销失败','error');}
 }
 
 function toggleKeySource(){
@@ -582,7 +968,10 @@ body.subject={
 common_name:document.getElementById('enrollCN').value,
 organization:document.getElementById('enrollOrg').value,
 country:document.getElementById('enrollCountry').value,
-organizational_unit:document.getElementById('enrollOU').value||undefined
+organizational_unit:document.getElementById('enrollOU').value||undefined,
+state:document.getElementById('enrollState').value||undefined,
+locality:document.getElementById('enrollLocality').value||undefined,
+email:document.getElementById('enrollEmail').value||undefined
 };
 body.extensions={
 subject_alt_names:document.getElementById('enrollSANs').value.split('\n').map(s=>s.trim()).filter(s=>s).map(s=>({type:'dns',value:s}))
@@ -603,6 +992,9 @@ function resetEnroll(){
 document.getElementById('enrollCN').value='';
 document.getElementById('enrollOrg').value='';
 document.getElementById('enrollOU').value='';
+document.getElementById('enrollState').value='';
+document.getElementById('enrollLocality').value='';
+document.getElementById('enrollEmail').value='';
 document.getElementById('enrollSANs').value='';
 document.getElementById('enrollDays').value='365';
 document.getElementById('enrollCSR').value='';
@@ -623,24 +1015,45 @@ document.getElementById('modalContent').innerHTML=html;
 document.getElementById('resultModal').classList.add('active');
 }
 
-async function loadAudit(){
+async function loadAudit(page){
+page=page||1;
 const el=document.getElementById('auditContent');
-el.innerHTML='<div class="loading">加载中...</div>';
-const data=await api('GET','/api/v1/audit/logs?page=1&page_size=20');
-if(data.code!=='OK'||!data.data||!data.data.length){el.innerHTML='<div class="empty">暂无审计日志</div>';return;}
-el.innerHTML='<table><thead><tr><th>时间</th><th>事件</th><th>操作人</th><th>对象</th><th>结果</th></tr></thead><tbody>'+data.data.map(l=>`<tr><td>${l.created_at?l.created_at.substring(0,19).replace('T',' '):'-'}</td><td>${l.event_type}</td><td>${l.actor}</td><td>${l.target_type} / ${l.target_id}</td><td>${l.result}</td></tr>`).join('')+'</tbody></table>';
+showLoading('auditContent');
+const data=await api('GET','/api/v1/audit/logs?page='+page+'&page_size=15');
+const items=data.data&&data.data.items?data.data.items:[];
+if(data.code!=='OK'){showError('auditContent',data.message||'加载审计日志失败');return;}
+if(!items.length){showEmpty('auditContent','暂无审计日志','&#128196;');return;}
+const severityMap={'INFO':'信息','WARN':'警告','ERROR':'错误','CRITICAL':'严重'};
+const severityClass={'INFO':'badge-valid','WARN':'badge-warn','ERROR':'badge-revoked','CRITICAL':'badge-revoked'};
+const eventMap={'ADMIN_LOGIN':'登录','CERT_ISSUE':'签发证书','CERT_REVOKE':'吊销证书','KEY_EXPORT':'导出私钥','CRL_GENERATE':'生成CRL','SYSTEM_CONFIG':'系统配置','USER_MANAGE':'用户管理','EVENT_KEY_EXPORT':'密钥导出'};
+const resultMap={'SUCCESS':'成功','FAILED':'失败'};
+const resultClass={'SUCCESS':'badge-valid','FAILED':'badge-revoked'};
+el.innerHTML='<table><thead><tr><th>时间</th><th>事件</th><th>级别</th><th>操作人</th><th>操作</th><th>结果</th></tr></thead><tbody>'+items.map(l=>{
+const sev=severityMap[l.severity]||l.severity;
+const sevClass=severityClass[l.severity]||'badge-valid';
+const evt=eventMap[l.event_type]||l.event_type;
+const res=resultMap[l.result]||l.result;
+const resClass=resultClass[l.result]||'badge-valid';
+return `<tr><td style="font-size:12px;color:#666;white-space:nowrap">${formatDateTime(l.event_time)}</td><td><span class="tag">${evt}</span></td><td><span class="badge ${sevClass}">${sev}</span></td><td>${l.actor}</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.action}">${l.action}</td><td><span class="badge ${resClass}">${res}</span></td></tr>`;
+}).join('')+'</tbody></table>';
+renderPagination('auditContent',data.data.page||page,data.data.page_size||15,data.data.total||0,'loadAudit');
 }
 
 // ---- Operators (三员管理) ----
 async function loadOperators(){
 const el=document.getElementById('operatorsContent');
-el.innerHTML='<div class="loading">加载中...</div>';
+showLoading('operatorsContent');
 const data=await api('GET','/api/v1/operators');
-if(data.code!=='OK'){el.innerHTML='<div class="empty">'+data.message+'</div>';return;}
+if(data.code!=='OK'){showError('operatorsContent',data.message||'加载操作员列表失败');return;}
 const list=data.data||[];
+if(!list.length){showEmpty('operatorsContent','暂无操作员数据','&#128100;');return;}
 const roleMap={SYS_ADMIN:'系统管理员',SEC_ADMIN:'安全保密管理员',AUDITOR:'安全审计员',SUPER_ADMIN:'超级管理员'};
 const roleClass={SYS_ADMIN:'badge-sys',SEC_ADMIN:'badge-sec',AUDITOR:'badge-audit',SUPER_ADMIN:'badge-root'};
-el.innerHTML='<table><thead><tr><th>ID</th><th>用户名</th><th>真实姓名</th><th>角色</th><th>邮箱</th><th>状态</th><th>操作</th></tr></thead><tbody>'+list.map(op=>`<tr><td>${op.id}</td><td>${op.username}</td><td>${op.real_name}</td><td><span class="badge ${roleClass[op.role]||''}">${roleMap[op.role]||op.role}</span></td><td>${op.email}</td><td>${op.is_active?'<span style="color:#34a853">启用</span>':'<span style="color:#ea4335">禁用</span>'}</td><td class="action-btns">${op.role!=='SUPER_ADMIN'?`<button class="btn btn-secondary" onclick="toggleOperator(${op.id},${!op.is_active})">${op.is_active?'禁用':'启用'}</button><button class="btn btn-danger" onclick="deleteOperator(${op.id})">删除</button>`:'<span style="color:#999;font-size:12px">内置</span>'}</td></tr>`).join('')+'</tbody></table>';
+el.innerHTML='<table><thead><tr><th>ID</th><th>用户名</th><th>真实姓名</th><th>角色</th><th>邮箱</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead><tbody>'+list.map(op=>{
+const activeClass=op.is_active?'on':'';
+const activeText=op.is_active?'已启用':'已禁用';
+return `<tr><td>${op.id}</td><td>${op.username}</td><td>${op.real_name||'-'}</td><td><span class="badge ${roleClass[op.role]||''}">${roleMap[op.role]||op.role}</span></td><td>${op.email||'-'}</td><td><span class="switch ${activeClass}" style="vertical-align:middle"></span> <span style="font-size:12px;color:${op.is_active?'#34a853':'#ea4335'}">${activeText}</span></td><td style="font-size:12px;color:#666">${op.last_login_at?formatRelativeTime(op.last_login_at):'从未登录'}</td><td class="action-btns">${op.role!=='SUPER_ADMIN'?`<button class="btn btn-secondary" onclick="toggleOperator(${op.id},${!op.is_active})">${op.is_active?'禁用':'启用'}</button><button class="btn btn-danger" onclick="deleteOperator(${op.id})">删除</button>`:'<span style="color:#999;font-size:12px">内置账户</span>'}</td></tr>`;
+}).join('')+'</tbody></table>';
 }
 
 async function doCreateOperator(){
@@ -663,26 +1076,31 @@ loadOperators();
 async function deleteOperator(id){
 if(!confirm('确定删除该操作员吗？'))return;
 const data=await api('DELETE','/api/v1/operators/'+id);
-if(data.code==='OK'){loadOperators();}else{alert(data.message||'删除失败');}
+if(data.code==='OK'){showToast('操作员已删除','success');loadOperators();}else{showToast(data.message||'删除失败','error');}
 }
 
 async function toggleOperator(id,isActive){
 const data=await api('POST','/api/v1/operators/'+id+'/status',{is_active:isActive});
-if(data.code==='OK'){loadOperators();}else{alert(data.message||'操作失败');}
+if(data.code==='OK'){showToast('状态已更新','success');loadOperators();}else{showToast(data.message||'操作失败','error');}
 }
 
 // ---- HSM ----
 async function loadHSM(){
+showLoading('hsmKeysContent');
 const status=await api('GET','/api/v1/hsm/status');
 if(status.code==='OK'&&status.data){
 document.getElementById('hsmType').textContent=status.data.type||'SoftHSM';
 document.getElementById('hsmKeyCount').textContent=status.data.key_count||0;
 document.getElementById('hsmPath').textContent=status.data.storage_path||'./data/hsm';
+}else if(status.code==='FORBIDDEN'){
+showToast('无权查看HSM状态','error');
 }
 const keys=await api('GET','/api/v1/hsm/keys');
 const el=document.getElementById('hsmKeysContent');
-if(keys.code!=='OK'||!keys.data||!keys.data.length){el.innerHTML='<div class="empty">暂无密钥</div>';return;}
-el.innerHTML='<table><thead><tr><th>句柄</th><th>算法</th><th>类型</th><th>创建时间</th><th>操作</th></tr></thead><tbody>'+keys.data.map(k=>`<tr><td>${k.handle.substring(0,8)}...</td><td><span class="tag tag-sm2">${k.algorithm}</span></td><td>${k.key_type}</td><td>${new Date(k.created_at).toLocaleString()}</td><td class="action-btns"><button class="btn btn-danger" onclick="deleteHsmKey('${k.handle}')">删除</button></td></tr>`).join('')+'</tbody></table>';
+if(keys.code!=='OK'){showError('hsmKeysContent',keys.message||'加载HSM密钥失败');return;}
+if(!keys.data||!keys.data.length){showEmpty('hsmKeysContent','暂无HSM密钥','&#128273;');return;}
+const typeMap={'SIGN':'签名','ENC':'加密','CA':'CA密钥'};
+el.innerHTML='<table><thead><tr><th>句柄</th><th>算法</th><th>类型</th><th>创建时间</th><th>操作</th></tr></thead><tbody>'+keys.data.map(k=>`<tr><td style="font-family:monospace;font-size:12px">${k.handle.substring(0,12)}...</td><td><span class="tag tag-sm2">${k.algorithm}</span></td><td>${typeMap[k.key_type]||k.key_type}</td><td style="font-size:12px;color:#666">${formatDateTime(k.created_at)}</td><td class="action-btns"><button class="btn btn-danger" onclick="deleteHsmKey('${k.handle}')">删除</button></td></tr>`).join('')+'</tbody></table>';
 }
 
 async function doGenerateKey(){
@@ -697,10 +1115,14 @@ loadHSM();
 async function deleteHsmKey(handle){
 if(!confirm('确定删除该密钥吗？'))return;
 const data=await api('DELETE','/api/v1/hsm/keys/'+handle);
-if(data.code==='OK'){loadHSM();}else{alert(data.message||'删除失败');}
+if(data.code==='OK'){showToast('密钥已删除','success');loadHSM();}else{showToast(data.message||'删除失败','error');}
 }
 
 // ---- Profile ----
+function loadConfig(){
+// 配置页面为静态展示，无需动态加载
+}
+
 function loadProfile(){
 document.getElementById('profileUsername').value=user.username||'';
 // 角色显示名称映射
@@ -720,7 +1142,7 @@ if(newPwd!==confirmPwd){showAlert('profileAlert','两次输入的新密码不一
 const uid=user.id||1;
 const data=await api('POST','/api/v1/operators/'+uid+'/password',{old_password:oldPwd,new_password:newPwd});
 if(data.code!=='OK'){showAlert('profileAlert',data.message||'修改失败','error');return;}
-showAlert('profileAlert','密码修改成功，请重新登录','success');
+showToast('密码修改成功，请重新登录','success');
 setTimeout(()=>doLogout(),2000);
 }
 

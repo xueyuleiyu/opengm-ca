@@ -4,7 +4,96 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.0.0] - 2026-05-18
+
+### Documentation（文档整合与优化）
+
+- **文档体系重构**
+  - 删除冗余文档：AUDIT_REPORT.md、AUDIT_REPORT_V3.md、SECURITY_AUDIT_REPORT.md、CERTIFICATE_COMPARISON_REPORT.md
+  - 创建文档导航中心：`doc/index.md`
+  - 创建文档整合报告：`doc/DOCUMENT_INTEGRATION_REPORT.md`
+  - 统一文档引用路径，所有技术文档引用统一使用`doc/`前缀
+  - 文档总数从28个减少到20个，减少28.6%
+
+- **文档分类优化**
+  - 核心文档（5个）：README.md、DEPLOYMENT.md、SECURITY.md、USER_MANUAL.md、CHANGELOG.md
+  - 安全文档（7个）：CODE_AUDIT_REPORT.md、SECURITY_FIX_SUMMARY.md等
+  - 测试文档（2个）：COMPLETE_FUNCTION_TEST_REPORT.md、FRONTEND_FUNCTION_TEST_REPORT.md
+  - 优化文档（3个）：CERTIFICATE_OPTIMIZATION_REPORT.md等
+  - 修复文档（3个）：DATABASE_PASSWORD_RESET_REPORT.md等
+  - 归档文档（3个）：DOCUMENT_ORGANIZATION_REPORT.md等
+
+- **文档引用路径更新**
+  - DEPLOYMENT.md：更新所有技术文档引用路径
+  - USER_MANUAL.md：更新所有技术文档引用路径
+  - 添加文档导航中心链接
+
+### Security（安全审计）
+
+- **代码安全审计完成**
+  - 审计日期：2026-05-17
+  - 安全等级：⭐⭐⭐⭐☆ (良好)
+  - 高危漏洞：0个
+  - 中危问题：3个（配置验证、MFA功能、测试覆盖）
+  - 低危问题：5个
+  - 完成OWASP Top 10和等保2.0合规性检查
+  - 生成详细审计报告：`doc/CODE_AUDIT_REPORT.md`
+
 ## [Unreleased] - 2026-05-17
+
+### Fixed（问题修复）
+
+- **审计哈希链验证修复** (`internal/model/audit.go`, `internal/repository/audit_repo.go`, `internal/service/audit.go`)
+  - 修复 `ActorType` 未设置导致数据库默认值与哈希计算不一致的问题
+  - 修复 `VerifyHashChain` 验证逻辑未使用 `log.PrevHash` 的问题
+  - 修复时间精度问题：Go `time.Now()` 纳秒精度与 openGauss 微秒精度不匹配导致哈希验证失败
+  - 在 `BuildRecordContent` 中统一截断到微秒精度
+  - 在 `ComputeHash` 中优先使用已存储的 `RecordContent` 避免重新序列化差异
+
+- **前端证书吊销字段修复** (`web/index.html`)
+  - 后端 `Revoke` handler 期望 `reason` (int) 和 `reason_text` (string)
+  - 前端原传 `reason` (string) 和 `reason_code` (int)
+  - 统一为 `reason:0, reason_text:'管理员吊销'`
+
+- **前端 CA 证书链硬编码修复** (`web/index.html`, `internal/api/handler/ca.go`, `internal/api/router.go`, `cmd/ca-server/main.go`)
+  - 新增 `/api/v1/ca/chain` 公开 API，返回数据库中真实 CA 链数据
+  - 前端 `loadCaChain` 改为动态调用 API
+
+- **Prometheus Metrics 路由修复** (`internal/api/router.go`)
+  - `/api/v1/metrics` 从认证路由组移至公开路由组
+  - 符合 AGENTS.md 文档描述
+
+- **根 CA CRL 生成修复** (`internal/core/ca.go`)
+  - `GetCA` 方法增加对根 CA 的支持
+  - 之前仅查询 `subCAs`，根 CA 请求返回 "CA不存在或未加载"
+
+- **三员权限控制前后端对齐** (`web/index.html`, `internal/model/operator.go`)
+  - 前端 `canApprove` 移除 `SYS_ADMIN`（后端 `KEY_EXPORT` 仅分配给 SEC_ADMIN/SUPER_ADMIN）
+  - 前端导出审批说明文字修正：删除"系统管理员"
+  - 前端三员管理说明修正：`SYS_ADMIN` 不负责 CA策略/证书策略（实际由 SEC_ADMIN 负责）
+  - `internal/model/operator.go` 注释修正以匹配实际权限分配
+  - 仪表盘 HSM 状态卡片仅 SEC_ADMIN/SUPER_ADMIN 加载，其他角色显示"无权限查看"
+
+- **前端友好度提升** (`web/index.html`)
+  - 新增时间格式化：`formatDateTime`、`formatDate`、`formatRelativeTime`
+  - 新增 Toast 通知系统替代原生 `alert`
+  - 改进加载状态：旋转动画 + "正在加载数据，请稍候..."
+  - 改进空状态：图标 + 更友好文案
+  - 改进错误状态：⚠️ 图标 + 错误提示
+  - 证书列表：添加详情弹窗、分页显示、有效期范围显示、主题DN截断+tooltip
+  - 审计日志：事件类型中文映射、严重性标签着色、结果标签着色、分页显示
+  - 操作员管理：开关样式状态显示、最近登录相对时间、登录时间列
+  - 导出审批：过期时间列、状态颜色统一、ID tooltip
+  - HSM管理：密钥类型中文映射、创建时间格式化、403错误Toast提示
+  - CA证书链：动态加载真实数据、类型中文映射
+  - 全局移除 `alert()`，统一使用 `showToast`
+
+- **前端导出私钥"权限不足"误报修复** (`web/index.html`, `internal/api/handler/key.go`)
+  - **根因**: 后端业务拒绝（如"需要审批"）错误返回 HTTP `403`，前端 `api()` 拦截所有 `403` 并直接返回硬编码 `"权限不足"`，吞掉了后端的 `EXPORT_DENIED` 详细响应
+  - **后端修复**: 将业务逻辑拒绝的 HTTP 状态码从 `403 Forbidden` 统一改为 `400 Bad Request`（保留 body 中 `code: EXPORT_DENIED`）
+    - `Export()` / `CreateExportRequest()` / `ApproveExportRequest()` / `RejectExportRequest()` / `ExecuteExportRequest()`
+  - **前端修复**: `api()` 对 `403` 优先尝试解析响应体中的 `code` 字段，识别到 `EXPORT_DENIED` 等详细错误码后原样返回，仅在解析失败时回退到 `"权限不足"`
+  - **效果**: 直接导出时若配置 `requires_approval: true`，前端可正确捕获 `"需要审批"` 并自动提交导出申请，跳转至审批页面
 
 ### Security（安全加固）
 
@@ -59,6 +148,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - 配置环境变量DB_PASSWORD和JWT_SECRET
   - 服务成功启动并验证健康状态
   - 生成启动脚本和systemd服务配置
+
+### Added（新增功能）
+
+- **国密扩展字段支持** (`internal/core/gm_extensions.go`)
+  - 新增国密身份标识扩展支持（OID: 1.2.156.112562.2.1.1.23）
+  - 新增国密特有扩展支持（OID: 2.16.840.1.113732.5）
+  - 新增Netscape证书类型扩展支持
+  - 新增CRL分发点扩展支持（OID: 2.5.29.31）
+  - 提供便捷函数EnhanceCertificateWithGMExtensions一次性添加所有扩展
+  - 自动生成国密身份标识值（基于主题CN+组织+国家）
+
+- **证书主题字段完善** (`internal/core/ca.go`)
+  - 新增State/Province字段支持（省份）
+  - 新增Locality字段支持（城市）
+  - 正确处理空字符串，避免证书中出现空字段
+  - 提高证书信息完整性
+
+### Changed（功能改进）
+
+- **证书生成流程优化**
+  - buildCertTemplate函数支持完整的主题字段
+  - 证书模板构建更加灵活和完整
+  - 提高国密应用兼容性
 
 ## [Unreleased] - 2026-05-09
 

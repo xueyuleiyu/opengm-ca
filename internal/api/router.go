@@ -26,6 +26,7 @@ type Router struct {
 	hsmHandler      *handler.HSMHandler
 	crlHandler      *handler.CRLHandler
 	ocspHandler     *handler.OCSPHandler
+	caHandler       *handler.CAHandler
 	operatorRepo    *repository.OperatorRepository
 }
 
@@ -41,6 +42,7 @@ func NewRouter(
 	hsmHandler *handler.HSMHandler,
 	crlHandler *handler.CRLHandler,
 	ocspHandler *handler.OCSPHandler,
+	caHandler *handler.CAHandler,
 	operatorRepo *repository.OperatorRepository,
 ) *Router {
 	return &Router{
@@ -54,6 +56,7 @@ func NewRouter(
 		hsmHandler:      hsmHandler,
 		crlHandler:      crlHandler,
 		ocspHandler:     ocspHandler,
+		caHandler:       caHandler,
 		operatorRepo:    operatorRepo,
 	}
 }
@@ -116,6 +119,12 @@ func (r *Router) Register(engine *gin.Engine) {
 			{
 				keys.GET("", middleware.RequirePermission("KEY_MANAGE"), r.keyHandler.List)
 				keys.POST("/:key_id/export", middleware.RequirePermission("KEY_EXPORT"), r.keyHandler.Export)
+				keys.POST("/:key_id/export-request", middleware.RequirePermission("KEY_EXPORT"), r.keyHandler.CreateExportRequest)
+				keys.GET("/export-requests", middleware.RequirePermission("KEY_EXPORT"), r.keyHandler.ListExportRequests)
+				keys.GET("/export-requests/:request_id", middleware.RequirePermission("KEY_EXPORT"), r.keyHandler.GetExportRequest)
+				keys.POST("/export-requests/:request_id/approve", middleware.RequirePermission("KEY_EXPORT"), r.keyHandler.ApproveExportRequest)
+				keys.POST("/export-requests/:request_id/reject", middleware.RequirePermission("KEY_EXPORT"), r.keyHandler.RejectExportRequest)
+				keys.POST("/export-requests/:request_id/execute", middleware.RequirePermission("KEY_EXPORT"), r.keyHandler.ExecuteExportRequest)
 			}
 
 			// 审计日志（仅审计管理员）
@@ -146,9 +155,13 @@ func (r *Router) Register(engine *gin.Engine) {
 				hsmGroup.DELETE("/keys/:handle", middleware.RequirePermission("HSM_MANAGE"), r.hsmHandler.DeleteKey)
 			}
 
-			// Prometheus Metrics（需要认证）
-			authorized.GET("/metrics", metrics.MetricsHandler())
 		}
+
+		// Prometheus Metrics（公开访问）
+		v1.GET("/metrics", metrics.MetricsHandler())
+
+		// CA证书链（公开访问）
+		v1.GET("/ca/chain", r.caHandler.ListCAChain)
 
 		// CRL/OCSP（公开访问）
 		v1.GET("/crl/:ca_name", r.crlHandler.GenerateCRL)

@@ -28,13 +28,40 @@
 - ✅ 数据库密码重置（新密码：OpenGM@2026#NewPass）
 - ✅ 服务成功启动（PID: 35911，端口: 8443）
 
+### 1.3 全面测试与修复 (2026-05-17)
+
+本次全面测试覆盖前后端所有功能，发现并修复以下问题：
+
+- ✅ 审计哈希链验证修复（ActorType/时间精度/验证逻辑）
+- ✅ 前端证书吊销字段修复（reason/reason_text 对齐后端）
+- ✅ 前端 CA 证书链硬编码修复（新增 `/api/v1/ca/chain` API）
+- ✅ Prometheus Metrics 路由公开化
+- ✅ 根 CA CRL 生成修复（GetCA 支持根 CA）
+- ✅ 私钥导出审批流程完整实现（前后端）
+- ✅ 三员权限控制前后端对齐（导出审批/HSM/说明文字）
+- ✅ 前端友好度全面提升（Toast通知、时间格式化、加载动画、空状态、分页、详情弹窗）
+- ✅ 18 项功能测试全部通过
+
+### 1.2 证书功能增强 (2026-05-17)
+
+本次部署新增以下证书功能：
+
+- ✅ 国密扩展字段支持（身份标识扩展、国密特有扩展）
+- ✅ CRL分发点支持（证书吊销验证）
+- ✅ Netscape证书类型扩展（浏览器兼容性）
+- ✅ 完整主题字段支持（State/Province、Locality）
+- ✅ 国密应用兼容性提升（GM/T 0015标准）
+
 详细安全修复内容请参考：
 - `SECURITY.md` - 安全策略和修复记录
-- `SECURITY_FIX_SUMMARY.md` - 安全修复总结报告
-- `AUDIT_REPORT.md` - 代码安全审计报告
-- `PASSWORD_FIX_REPORT.md` - 密码修改权限修复报告
-- `FRONTEND_PERMISSION_FIX_REPORT.md` - 前端权限修复报告
-- `DATABASE_PASSWORD_RESET_REPORT.md` - 数据库密码重置报告
+- `doc/SECURITY_FIX_SUMMARY.md` - 安全修复总结报告
+- `doc/CODE_AUDIT_REPORT.md` - 代码安全审计报告
+- `doc/PASSWORD_FIX_REPORT.md` - 密码修改权限修复报告
+- `doc/FRONTEND_PERMISSION_FIX_REPORT.md` - 前端权限修复报告
+- `doc/DATABASE_PASSWORD_RESET_REPORT.md` - 数据库密码重置报告
+- `doc/PEM_CERTIFICATE_COMPARISON_REPORT.md` - PEM证书对比分析报告
+- `doc/CERTIFICATE_OPTIMIZATION_REPORT.md` - 证书优化报告
+- `doc/index.md` - 文档导航中心
 
 ---
 
@@ -471,6 +498,10 @@ nohup ./ca-server -config ./configs/config.yaml > /var/log/opengm-ca.log 2>&1 &
 6. **主密钥 base64 解码陷阱** (`internal/crypto/keystore.go`)
    - 原因：`resolveMasterKey` 对 32 字符的有效 base64 字符串会解码为 24 字节，导致 `NewKeyStore` 校验失败
    - 规避：**建议使用 64 字符 hex 格式**（如 `openssl rand -hex 32`），避免使用恰好是有效 base64 的 32 字符字符串
+
+7. **前端导出私钥误报"权限不足"** (`web/index.html`, `internal/api/handler/key.go`)
+   - 原因：后端业务拒绝（如"需要审批"）返回 HTTP `403`，前端 `api()` 拦截所有 `403` 直接返回硬编码 `"权限不足"`，吞掉 `EXPORT_DENIED` 响应，导致自动审批流程无法触发
+   - 修复：后端业务拒绝改为 `400 Bad Request`（保留 `code: EXPORT_DENIED`）；前端 `api()` 对 `403` 优先解析响应体中的详细错误码
 
 ## 8. 已知问题与限制
 
