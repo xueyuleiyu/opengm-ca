@@ -26,11 +26,16 @@ openGM-CA 是一个支持国密算法（SM2/SM3/SM4）的证书认证中心（CA
 | **密码学强度** | PBKDF2 600,000次迭代、AES-256-GCM加密 |
 | **凭证保护** | 数据库DSN脱敏、日志密码隐藏 |
 | **审计可靠性** | 队列容量5000、降级备份机制 |
+| **密码修改权限** | 所有用户可修改自己密码，SEC_ADMIN可重置他人密码 |
+| **前端权限一致性** | 菜单和按钮权限与后端API权限完全一致 |
+| **三员权限分离** | SYS_ADMIN(系统配置+用户管理)、SEC_ADMIN(证书签发+密钥管理)、AUDITOR(审计查看) |
 
 详细安全信息请参考：
 - `SECURITY.md` - 安全策略文档
 - `AUDIT_REPORT.md` - 安全审计报告
 - `SECURITY_FIX_SUMMARY.md` - 安全修复总结
+- `PASSWORD_FIX_REPORT.md` - 密码修改权限修复报告
+- `FRONTEND_PERMISSION_FIX_REPORT.md` - 前端权限修复报告
 
 ### 1.3 系统架构
 

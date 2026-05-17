@@ -111,10 +111,11 @@ func (c *Certificate) GetSubjectAltNames() []SubjectAltName {
 	var result []SubjectAltName
 	for _, v := range sans {
 		if m, ok := v.(map[string]interface{}); ok {
-			result = append(result, SubjectAltName{
-				Type:  m["type"].(string),
-				Value: m["value"].(string),
-			})
+			typ, ok1 := m["type"].(string)
+			val, ok2 := m["value"].(string)
+			if ok1 && ok2 {
+				result = append(result, SubjectAltName{Type: typ, Value: val})
+			}
 		}
 	}
 	return result

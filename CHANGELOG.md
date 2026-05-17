@@ -39,6 +39,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - 队列满时写入备份文件（异步，不阻塞业务请求）
   - 增加丢弃计数器和警告日志
 
+- **密码修改权限优化** (`internal/api/router.go`)
+  - 移除密码修改接口的USER_MANAGE权限要求
+  - 允许所有认证用户修改自己的密码
+  - SEC_ADMIN和SUPER_ADMIN可以重置他人密码
+  - 函数内部保留完善的权限控制逻辑
+
+- **前端权限逻辑修复** (`web/index.html`)
+  - 修复操作员管理菜单权限（改为sys-admin-only）
+  - 修复审计日志菜单权限（添加audit-admin-only）
+  - 修复申请证书菜单权限（改为sec-admin-only）
+  - 添加证书吊销按钮权限控制（仅SEC_ADMIN可见）
+  - 添加私钥导出按钮权限控制（仅SEC_ADMIN可见）
+  - 修复角色显示格式（使用中文显示名称）
+  - 更新操作员管理页面说明（与实际权限一致）
+
+- **数据库密码重置与服务启动**
+  - 重置数据库用户ca_admin密码
+  - 配置环境变量DB_PASSWORD和JWT_SECRET
+  - 服务成功启动并验证健康状态
+  - 生成启动脚本和systemd服务配置
+
 ## [Unreleased] - 2026-05-09
 
 ### Security（高风险修复）

@@ -103,6 +103,10 @@ func (d *DualCertCoordinator) IssueDualCertificates(ctx context.Context, req *mo
 		return nil, fmt.Errorf("保存签名证书失败: %w", err)
 	}
 	if err := d.certRepo.Create(ctx, encCert); err != nil {
+		// 补偿：加密证书创建失败时删除已创建的签名证书，避免数据不一致
+		if delErr := d.certRepo.Delete(ctx, signCert.ID); delErr != nil {
+			log.Error().Err(delErr).Int64("sign_cert_id", signCert.ID).Msg("双证书补偿删除签名证书失败")
+		}
 		return nil, fmt.Errorf("保存加密证书失败: %w", err)
 	}
 

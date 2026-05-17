@@ -87,7 +87,7 @@ func (a *AuditLog) TableName() string {
 }
 
 func (a *AuditLog) toMap() map[string]interface{} {
-	return map[string]interface{}{
+	m := map[string]interface{}{
 		"event_time":  a.EventTime.Format(time.RFC3339Nano),
 		"event_type":  a.EventType,
 		"severity":    a.Severity,
@@ -101,6 +101,10 @@ func (a *AuditLog) toMap() map[string]interface{} {
 		"result":      a.Result,
 		"error_msg":   a.ErrorMsg,
 	}
+	if len(a.TSSignature) > 0 {
+		m["ts_signature"] = a.TSSignature
+	}
+	return m
 }
 
 // ComputeHash 计算当前记录的哈希值

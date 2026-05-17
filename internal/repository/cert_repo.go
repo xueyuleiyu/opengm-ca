@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/uptrace/bun"
@@ -80,6 +81,9 @@ func (r *CertificateRepository) List(ctx context.Context, filters map[string]int
 	if serialNumber, ok := filters["serial_number"].(string); ok && serialNumber != "" {
 		query = query.Where("serial_number = ?", serialNumber)
 	}
+	if validToGte, ok := filters["valid_to_gte"].(time.Time); ok {
+		query = query.Where("valid_to >= ?", validToGte)
+	}
 
 	count, err := query.Count(ctx)
 	if err != nil {
@@ -137,6 +141,12 @@ func (r *CertificateRepository) CountByStatus(ctx context.Context) (map[string]i
 		stats[r.Status] = r.Count
 	}
 	return stats, nil
+}
+
+// Delete 删除证书记录
+func (r *CertificateRepository) Delete(ctx context.Context, id int64) error {
+	_, err := r.db.NewDelete().Model((*model.Certificate)(nil)).Where("id = ?", id).Exec(ctx)
+	return err
 }
 
 // GetExpiringSoon 获取即将过期的证书

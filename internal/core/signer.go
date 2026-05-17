@@ -40,8 +40,12 @@ type SM2Signer struct {
 }
 
 // NewSM2Signer 创建SM2签名器
-func NewSM2Signer(privKey *sm2.PrivateKey) *SM2Signer {
-	return &SM2Signer{PrivateKey: privKey, UID: resolveSM2UID()}
+func NewSM2Signer(privKey *sm2.PrivateKey) (*SM2Signer, error) {
+	uid, err := resolveSM2UID()
+	if err != nil {
+		return nil, err
+	}
+	return &SM2Signer{PrivateKey: privKey, UID: uid}, nil
 }
 
 // Sign 使用SM2签名(自动做SM3哈希)
@@ -70,17 +74,16 @@ func (s *SM2Signer) HashFunc() hash.Hash {
 }
 
 // resolveSM2UID 从环境变量读取SM2 UserID，未设置则生成随机值
-func resolveSM2UID() []byte {
+func resolveSM2UID() ([]byte, error) {
 	if uid := os.Getenv("CA_SM2_USER_ID"); uid != "" {
-		return []byte(uid)
+		return []byte(uid), nil
 	}
 	// 未配置时生成随机16字节UID（避免使用硬编码测试值）
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// 熵源失败时panic（系统随机数源不可恢复）
-		panic(fmt.Sprintf("SM2 UID生成失败(熵源错误): %v", err))
+		return nil, fmt.Errorf("SM2 UID生成失败(熵源错误): %w", err)
 	}
-	return b
+	return b, nil
 }
 
 // SignerFactory 签名器工厂
@@ -99,7 +102,7 @@ func (f *SignerFactory) CreateSigner(algorithm string, privateKey interface{}) (
 		if !ok {
 			return nil, fmt.Errorf("私钥类型不匹配，期望*sm2.PrivateKey")
 		}
-		return NewSM2Signer(key), nil
+		return NewSM2Signer(key)
 	default:
 		return nil, fmt.Errorf("不支持的签名算法: %s", algorithm)
 	}

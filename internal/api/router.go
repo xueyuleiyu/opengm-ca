@@ -125,14 +125,15 @@ func (r *Router) Register(engine *gin.Engine) {
 				audit.GET("/verify", middleware.RequirePermission("AUDIT_VERIFY"), r.auditHandler.Verify)
 			}
 
-			// 操作员管理（仅系统管理员）
+			// 操作员管理
 			operators := authorized.Group("/operators")
 			{
 				operators.GET("", middleware.RequirePermission("USER_MANAGE"), r.operatorHandler.List)
 				operators.POST("", middleware.RequirePermission("USER_MANAGE"), r.operatorHandler.Create)
 				operators.PUT("/:id", middleware.RequirePermission("USER_MANAGE"), r.operatorHandler.Update)
 				operators.DELETE("/:id", middleware.RequirePermission("USER_MANAGE"), r.operatorHandler.Delete)
-				operators.POST("/:id/password", middleware.RequirePermission("USER_MANAGE"), r.operatorHandler.ChangePassword)
+				// 密码修改接口：所有认证用户都可以修改自己的密码，SEC_ADMIN可以重置他人密码
+				operators.POST("/:id/password", r.operatorHandler.ChangePassword)
 				operators.POST("/:id/status", middleware.RequirePermission("USER_MANAGE"), r.operatorHandler.ToggleStatus)
 			}
 

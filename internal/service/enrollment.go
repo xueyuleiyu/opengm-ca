@@ -227,7 +227,7 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 	if keyModel != nil {
 		keyModel.CertID = &certModel.ID
 		if err := s.keyRepo.UpdateCertID(ctx, keyModel.KeyID, certModel.ID); err != nil {
-			log.Warn().Err(err).Str("key_id", keyModel.KeyID).Int64("cert_id", certModel.ID).Msg("密钥证书关联更新失败")
+			return nil, fmt.Errorf("证书已签发但密钥关联失败: %w", err)
 		}
 	}
 
@@ -424,7 +424,8 @@ func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, sub
 		return nil, fmt.Errorf("生成证书序列号失败: %w", err)
 	}
 
-	notAfter := time.Now().AddDate(0, 0, req.ValidityDays)
+	now := time.Now()
+	notAfter := now.AddDate(0, 0, req.ValidityDays)
 	// 终端证书有效期不得超过签名CA有效期
 	if notAfter.After(ca.ValidTo) {
 		notAfter = ca.ValidTo
@@ -440,7 +441,7 @@ func (s *EnrollmentService) buildCertTemplate(req *model.CertificateRequest, sub
 			Province:           []string{subject.State},
 			Locality:           []string{subject.Locality},
 		},
-		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotBefore:             now.Add(-1 * time.Hour),
 		NotAfter:              notAfter,
 		BasicConstraintsValid: true,
 		IsCA:                  false,
@@ -490,7 +491,11 @@ func (s *EnrollmentService) signCertificate(template *x509.Certificate, pubKey i
 	}
 
 	// 添加关键PKI扩展
-	template.SubjectKeyId = core.GenerateKeyID(pubKey)
+	keyID, err := core.GenerateKeyID(pubKey)
+	if err != nil {
+		return nil, fmt.Errorf("生成SubjectKeyId失败: %w", err)
+	}
+	template.SubjectKeyId = keyID
 	template.AuthorityKeyId = caInstance.Cert.SubjectKeyId
 
 	certBytes, err := smx509.CreateCertificate(rand.Reader, template, caInstance.Cert, pubKey, caInstance.Signer)

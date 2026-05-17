@@ -23,11 +23,18 @@
 - ✅ HSM PBKDF2迭代次数统一（600,000次）
 - ✅ 数据库DSN脱敏（日志中密码显示为REDACTED）
 - ✅ 审计队列优化（容量5000、降级备份机制）
+- ✅ 密码修改权限优化（所有用户可修改自己密码）
+- ✅ 前端权限逻辑修复（菜单和按钮权限一致）
+- ✅ 数据库密码重置（新密码：OpenGM@2026#NewPass）
+- ✅ 服务成功启动（PID: 35911，端口: 8443）
 
 详细安全修复内容请参考：
 - `SECURITY.md` - 安全策略和修复记录
 - `SECURITY_FIX_SUMMARY.md` - 安全修复总结报告
 - `AUDIT_REPORT.md` - 代码安全审计报告
+- `PASSWORD_FIX_REPORT.md` - 密码修改权限修复报告
+- `FRONTEND_PERMISSION_FIX_REPORT.md` - 前端权限修复报告
+- `DATABASE_PASSWORD_RESET_REPORT.md` - 数据库密码重置报告
 
 ---
 

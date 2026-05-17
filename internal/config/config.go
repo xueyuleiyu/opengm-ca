@@ -237,6 +237,11 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("JWT密钥长度不足，至少需要32字节(256位)，请通过环境变量JWT_SECRET或配置文件设置足够强度的密钥")
 	}
 
+	// 数据库TLS模式安全提示
+	if cfg.Database.SSLMode != "require" && cfg.Database.SSLMode != "verify-ca" && cfg.Database.SSLMode != "verify-full" {
+		log.Warn().Str("ssl_mode", cfg.Database.SSLMode).Msg("数据库连接未强制启用TLS，生产环境建议设置为 require 或 verify-full")
+	}
+
 	globalConfig = &cfg
 	log.Info().Str("config", configPath).Msg("配置文件加载成功")
 	return &cfg, nil

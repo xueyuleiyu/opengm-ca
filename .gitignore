@@ -1,8 +1,99 @@
-ca-server
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Build output
 build/
+bin/
+dist/
+
+# Configuration files with sensitive data
+configs/config.local.yaml
+.env
+.env.local
+.env.*.local
+
+# Data directories
 data/
+logs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+tmp/
+temp/
+*.tmp
 *.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# CodeArts Doer
+.codeartsdoer/
+
+# LiteLLM config
+litellm_config.yaml
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Certificate and key files (sensitive)
+*.pem
 *.key
 *.crt
-*.pem
-.env
+*.p12
+*.pfx
+
+# HSM data
+hsm/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Test coverage
+coverage.txt
+coverage.html
+
+# Documentation build
+docs/_build/
+
+# Node modules (if any frontend)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Package files
+*.tar.gz
+*.zip
+*.rar

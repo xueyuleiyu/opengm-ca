@@ -111,10 +111,10 @@ tr:hover{background:#f8f9fa}
 <div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')"><span class="icon">&#9638;</span>仪表盘</div>
 <div class="nav-item" data-page="caChain" onclick="showPage('caChain')"><span class="icon">&#128274;</span>CA 证书链</div>
 <div class="nav-item" data-page="certificates" onclick="showPage('certificates')"><span class="icon">&#128441;</span>证书管理</div>
-<div class="nav-item" data-page="enroll" onclick="showPage('enroll')"><span class="icon">+</span>申请证书</div>
-<div class="nav-item" data-page="audit" onclick="showPage('audit')"><span class="icon">&#128196;</span>审计日志</div>
+<div class="nav-item sec-admin-only hidden" data-page="enroll" onclick="showPage('enroll')"><span class="icon">+</span>申请证书</div>
+<div class="nav-item audit-admin-only hidden" data-page="audit" onclick="showPage('audit')"><span class="icon">&#128196;</span>审计日志</div>
 <div class="nav-divider"></div>
-<div class="nav-item sec-admin-only hidden" data-page="operators" onclick="showPage('operators')"><span class="icon">&#128100;</span>操作员管理</div>
+<div class="nav-item sys-admin-only hidden" data-page="operators" onclick="showPage('operators')"><span class="icon">&#128100;</span>操作员管理</div>
 <div class="nav-item sec-admin-only hidden" data-page="hsm" onclick="showPage('hsm')"><span class="icon">&#128273;</span>HSM 管理</div>
 <div class="nav-item sys-admin-only hidden" data-page="config" onclick="showPage('config')"><span class="icon">&#9881;</span>系统配置</div>
 <div class="nav-divider"></div>
@@ -233,8 +233,8 @@ tr:hover{background:#f8f9fa}
 <div class="panel" style="background:#fff8e1;border-left:4px solid #f9a825">
 <h4 style="margin-bottom:10px;color:#b06000">&#9432; 三员管理说明</h4>
 <p style="font-size:13px;color:#666;line-height:1.6">
-<b>系统管理员(SYS_ADMIN)</b>：负责系统配置、CA策略、证书策略管理<br>
-<b>安全保密管理员(SEC_ADMIN)</b>：负责用户管理、权限分配、密钥管理、HSM管理<br>
+<b>系统管理员(SYS_ADMIN)</b>：负责系统配置、CA策略、证书策略管理、用户管理<br>
+<b>安全保密管理员(SEC_ADMIN)</b>：负责证书签发、吊销、密钥管理、HSM管理<br>
 <b>安全审计员(AUDITOR)</b>：仅可查看审计日志，不可执行管理操作（只读）<br>
 <small>注：三个角色权限相互分离、相互制约，符合等保2.0要求。</small>
 </p>
@@ -415,7 +415,9 @@ function showApp(){
 document.getElementById('loginPage').classList.add('hidden');
 document.getElementById('appPage').classList.remove('hidden');
 document.getElementById('userName').textContent=user.username||'admin';
-document.getElementById('userRole').textContent=(user.role||'').replace('_','-');
+// 角色显示名称映射
+const roleDisplayNames={'SYS_ADMIN':'系统管理员','SEC_ADMIN':'安全保密管理员','AUDITOR':'安全审计员','SUPER_ADMIN':'超级管理员'};
+document.getElementById('userRole').textContent=roleDisplayNames[user.role]||user.role||'未知';
 // 权限控制导航显示
 const role=user.role||'';
 if(role==='SEC_ADMIN'||role==='SUPER_ADMIN'){
@@ -423,6 +425,9 @@ document.querySelectorAll('.sec-admin-only').forEach(el=>el.classList.remove('hi
 }
 if(role==='SYS_ADMIN'||role==='SUPER_ADMIN'){
 document.querySelectorAll('.sys-admin-only').forEach(el=>el.classList.remove('hidden'));
+}
+if(role==='SYS_ADMIN'||role==='AUDITOR'||role==='SUPER_ADMIN'){
+document.querySelectorAll('.audit-admin-only').forEach(el=>el.classList.remove('hidden'));
 }
 }
 
@@ -505,7 +510,14 @@ el.innerHTML='<div class="empty">暂无证书，请前往"申请证书"页面创
 }
 const list=data.data.items;
 list.forEach(c=>certCache[c.id]=c);
-el.innerHTML='<table><thead><tr><th>ID</th><th>类型</th><th>主题</th><th>序列号</th><th>状态</th><th>有效期至</th><th>操作</th></tr></thead><tbody>'+list.map(c=>`<tr><td>${c.id}</td><td>${c.cert_type}</td><td>${c.subject_dn}</td><td>${c.serial_number}</td><td><span class="badge badge-${c.status?c.status.toLowerCase():'valid'}">${c.status}</span></td><td>${c.valid_to?c.valid_to.substring(0,10):'-'}</td><td class="action-btns"><button class="btn btn-secondary" onclick="downloadCertPEM(${c.id})">导出PEM</button>${c.key_id?`<button class="btn btn-warning" onclick="exportPrivateKey('${c.key_id}')">导出私钥</button>`:''}<button class="btn btn-danger" onclick="revokeCert(${c.id})">吊销</button></td></tr>`).join('')+'</tbody></table>';
+// 权限检查：只有SEC_ADMIN和SUPER_ADMIN可以吊销证书和导出私钥
+const canRevoke=user.role==='SEC_ADMIN'||user.role==='SUPER_ADMIN';
+const canExportKey=user.role==='SEC_ADMIN'||user.role==='SUPER_ADMIN';
+el.innerHTML='<table><thead><tr><th>ID</th><th>类型</th><th>主题</th><th>序列号</th><th>状态</th><th>有效期至</th><th>操作</th></tr></thead><tbody>'+list.map(c=>{
+const revokeBtn=canRevoke?`<button class="btn btn-danger" onclick="revokeCert(${c.id})">吊销</button>`:'';
+const exportKeyBtn=(c.key_id&&canExportKey)?`<button class="btn btn-warning" onclick="exportPrivateKey('${c.key_id}')">导出私钥</button>`:'';
+return `<tr><td>${c.id}</td><td>${c.cert_type}</td><td>${c.subject_dn}</td><td>${c.serial_number}</td><td><span class="badge badge-${c.status?c.status.toLowerCase():'valid'}">${c.status}</span></td><td>${c.valid_to?c.valid_to.substring(0,10):'-'}</td><td class="action-btns"><button class="btn btn-secondary" onclick="downloadCertPEM(${c.id})">导出PEM</button>${exportKeyBtn}${revokeBtn}</td></tr>`;
+}).join('')+'</tbody></table>';
 }
 
 function downloadCertPEM(certId){
@@ -691,7 +703,9 @@ if(data.code==='OK'){loadHSM();}else{alert(data.message||'删除失败');}
 // ---- Profile ----
 function loadProfile(){
 document.getElementById('profileUsername').value=user.username||'';
-document.getElementById('profileRole').value=(user.role||'').replace('_','-');
+// 角色显示名称映射
+const roleDisplayNames={'SYS_ADMIN':'系统管理员','SEC_ADMIN':'安全保密管理员','AUDITOR':'安全审计员','SUPER_ADMIN':'超级管理员'};
+document.getElementById('profileRole').value=roleDisplayNames[user.role]||user.role||'未知';
 document.getElementById('profileRealName').value=user.real_name||'';
 document.getElementById('profileEmail').value=user.email||'';
 }

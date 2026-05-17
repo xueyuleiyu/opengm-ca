@@ -191,6 +191,12 @@ func (h *CertificateHandler) Revoke(c *gin.Context) {
 		return
 	}
 
+	// RFC 5280 吊销原因范围 0-10
+	if req.Reason < 0 || req.Reason > 10 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_PARAMETER", "message": "吊销原因代码无效，必须在0-10之间"})
+		return
+	}
+
 	username, _ := c.Get("username")
 	actor := "anonymous"
 	if u, ok := username.(string); ok {
@@ -207,5 +213,5 @@ func (h *CertificateHandler) Revoke(c *gin.Context) {
 
 // Renew 续期证书
 func (h *CertificateHandler) Renew(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"code": "OK", "message": "证书续期功能开发中"})
+	c.JSON(http.StatusNotImplemented, gin.H{"code": "NOT_IMPLEMENTED", "message": "证书续期功能开发中"})
 }

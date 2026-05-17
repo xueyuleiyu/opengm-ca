@@ -60,15 +60,20 @@ func (r *KeyRepository) List(ctx context.Context, filters map[string]interface{}
 	return keys, count, nil
 }
 
-// IncrementExportCount 原子性增加导出计数，仅在未达到上限时成功
-func (r *KeyRepository) IncrementExportCount(ctx context.Context, keyID string) (bool, error) {
-	res, err := r.db.NewUpdate().Model((*model.CertKey)(nil)).
+// IncrementExportCount 原子性增加导出计数，仅在未达到上限且日限额未超时成功
+func (r *KeyRepository) IncrementExportCount(ctx context.Context, keyID string, maxDaily int) (bool, error) {
+	query := r.db.NewUpdate().Model((*model.CertKey)(nil)).
 		Set("export_count = export_count + 1").
 		Set("last_export_at = NOW()").
 		Where("key_id = ?", keyID).
 		Where("exportable = true").
-		Where("max_exports = 0 OR export_count < max_exports").
-		Exec(ctx)
+		Where("max_exports = 0 OR export_count < max_exports")
+
+	if maxDaily > 0 {
+		query = query.Where("(SELECT COUNT(*) FROM cert_keys WHERE DATE(last_export_at) = CURRENT_DATE) < ?", maxDaily)
+	}
+
+	res, err := query.Exec(ctx)
 	if err != nil {
 		return false, err
 	}

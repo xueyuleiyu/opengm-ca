@@ -59,15 +59,7 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 		return nil, fmt.Errorf("密钥不允许导出")
 	}
 
-	// 4. 检查每日导出限制
-	if s.cfg.KeyManagement.Export.MaxDailyExports > 0 {
-		dailyCount, _ := s.keyRepo.GetDailyExportCount(ctx)
-		if dailyCount >= s.cfg.KeyManagement.Export.MaxDailyExports {
-			return nil, fmt.Errorf("今日私钥导出次数已达上限(%d次)", s.cfg.KeyManagement.Export.MaxDailyExports)
-		}
-	}
-
-	// 5. 二次认证：验证当前用户密码
+	// 4. 二次认证：验证当前用户密码
 	if req.CurrentPassword == "" {
 		return nil, fmt.Errorf("必须提供当前登录密码进行二次认证")
 	}
@@ -82,7 +74,7 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 		return nil, fmt.Errorf("二次认证失败：密码错误")
 	}
 
-	// 6. 强制要求导出密码并校验强度
+	// 5. 强制要求导出密码并校验强度
 	if req.Password == "" {
 		return nil, fmt.Errorf("必须提供导出密码以保护私钥")
 	}
@@ -90,7 +82,7 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 		return nil, fmt.Errorf("导出密码强度不足: %w", err)
 	}
 
-	// 7. 解密私钥
+	// 6. 解密私钥
 	plainKey, err := s.keyStore.RetrieveKey(keyModel)
 	if err != nil {
 		s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityCritical, actor, actorIP, "KEY", req.KeyID,
@@ -98,23 +90,29 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 			model.ResultFailed, err.Error())
 		return nil, fmt.Errorf("解密私钥失败: %w", err)
 	}
+	// 导出完成后安全擦除明文私钥
+	defer func() {
+		for i := range plainKey {
+			plainKey[i] = 0
+		}
+	}()
 
-	// 8. 使用密码加密私钥 (PBKDF2 + AES-256-GCM)
+	// 7. 使用密码加密私钥 (PBKDF2 + AES-256-GCM)
 	encryptedPEM, err := encryptPrivateKeyWithPassword(plainKey, req.Password)
 	if err != nil {
 		return nil, fmt.Errorf("加密导出私钥失败: %w", err)
 	}
 
-	// 9. 原子更新导出计数（在数据库层检查上限，防止竞态条件绕过）
-	ok, err := s.keyRepo.IncrementExportCount(ctx, req.KeyID)
+	// 8. 原子更新导出计数（在数据库层同时检查单密钥上限和日限额，防止竞态条件绕过）
+	ok, err := s.keyRepo.IncrementExportCount(ctx, req.KeyID, s.cfg.KeyManagement.Export.MaxDailyExports)
 	if err != nil {
 		return nil, fmt.Errorf("更新导出计数失败: %w", err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("密钥导出次数已达上限")
+		return nil, fmt.Errorf("密钥导出次数已达上限（可能超过单密钥上限或今日日限额）")
 	}
 
-	// 10. 构建响应
+	// 9. 构建响应
 	resp := &model.KeyExportResponse{
 		KeyID:         req.KeyID,
 		PrivateKeyPEM: encryptedPEM,
@@ -129,7 +127,7 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 		resp.RemainingExports = &remaining
 	}
 
-	// 11. 审计日志（CRITICAL级别）
+	// 10. 审计日志（CRITICAL级别）
 	s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityCritical, actor, actorIP, "KEY", req.KeyID,
 		fmt.Sprintf("导出私钥：%s，原因：%s", req.KeyID, req.Reason), map[string]interface{}{
 			"key_id":            req.KeyID,

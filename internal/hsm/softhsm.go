@@ -201,6 +201,13 @@ func (h *SoftHSM) Sign(handle string, digest []byte, hashAlgo string) ([]byte, e
 		return nil, fmt.Errorf("解析私钥失败: %w", err)
 	}
 
+	// 签名完成后安全擦解密密钥明文
+	defer func() {
+		for i := range privBytes {
+			privBytes[i] = 0
+		}
+	}()
+
 	switch key := privKey.(type) {
 	case *sm2.PrivateKey:
 		return key.Sign(rand.Reader, digest, nil)

@@ -101,6 +101,25 @@ The following high and medium severity issues were fixed in this release:
 
 ### 2026-05-17 — Fifth Round Security Hardening
 
+| Severity | Issue | Fix Location |
+|----------|-------|--------------|
+| High | Master key source validation insufficient | `internal/crypto/keystore.go` — added file permission check (≤0600), symlink detection |
+| High | API input parameters lack size limits | `internal/api/middleware/request_limit.go` — created request body size limiting middleware |
+| Medium | HSM PBKDF2 iterations inconsistent | `internal/hsm/softhsm.go` — unified to 600,000 iterations (OWASP compliant) |
+| Medium | Database DSN exposed in logs | `internal/repository/db.go` — redact password in error messages |
+| Medium | Audit queue capacity insufficient | `internal/service/audit.go` — increased to 5000, added backup mechanism |
+| High | Password change API permission too strict | `internal/api/router.go` — removed USER_MANAGE requirement, allow self-change |
+| High | Frontend permission logic inconsistent | `web/index.html` — fixed menu visibility and button permissions |
+| High | Operator management menu permission wrong | `web/index.html` — changed to sys-admin-only class |
+| High | Audit log menu permission wrong | `web/index.html` — added audit-admin-only class |
+| High | Certificate enroll menu permission wrong | `web/index.html` — changed to sec-admin-only class |
+| Medium | Certificate revoke button permission missing | `web/index.html` — added permission check for SEC_ADMIN only |
+| Medium | Private key export button permission missing | `web/index.html` — added permission check for SEC_ADMIN only |
+| Low | Role display format inconsistent | `web/index.html` — use Chinese display names |
+| Low | Operator management description inaccurate | `web/index.html` — updated to match actual permissions |
+
+### 2026-05-17 — Fifth Round Security Hardening
+
 The following high and medium severity issues were fixed based on comprehensive security audit:
 
 | Severity | Issue | Fix Location |

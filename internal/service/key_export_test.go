@@ -52,7 +52,7 @@ func TestValidateExportPasswordStrength(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateExportPasswordStrength(tc.password)
+			err := ValidateExportPasswordStrength(tc.password)
 			if tc.wantErr {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tc.errMsg)

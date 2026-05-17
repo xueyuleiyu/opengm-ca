@@ -139,6 +139,7 @@ func GenerateJWT(cfg *config.AuthConfig, userID, username string, role string, p
 		"username":    username,
 		"role":        role,
 		"permissions": permissions,
+		"jti":         uuid.New().String(),
 		"iss":         cfg.JWT.Issuer,
 		"iat":         now.Unix(),
 		"exp":         now.Add(cfg.JWT.AccessTokenTTL).Unix(),
@@ -148,45 +149,61 @@ func GenerateJWT(cfg *config.AuthConfig, userID, username string, role string, p
 	return token.SignedString([]byte(cfg.JWT.Secret))
 }
 
-// RateLimitMiddleware 简单限流中间件（定期清理过期条目，防止内存泄漏）
+// RateLimitMiddleware 简单限流中间件（分片锁降低竞争，后台清理防止内存泄漏）
 func RateLimitMiddleware(maxRequests int, window time.Duration) gin.HandlerFunc {
 	type clientInfo struct {
 		count   int
 		resetAt time.Time
 	}
-	clients := make(map[string]*clientInfo)
-	var mu sync.Mutex
-	var cleanupTick int
+	const shardCount = 8
+	type shard struct {
+		mu sync.Mutex
+		m  map[string]*clientInfo
+	}
+	var shards [shardCount]shard
+	for i := range shards {
+		shards[i].m = make(map[string]*clientInfo)
+	}
+
+	// 后台定期清理过期条目
+	go func() {
+		ticker := time.NewTicker(window)
+		defer ticker.Stop()
+		for range ticker.C {
+			now := time.Now()
+			for i := range shards {
+				s := &shards[i]
+				s.mu.Lock()
+				for ip, info := range s.m {
+					if now.After(info.resetAt) {
+						delete(s.m, ip)
+					}
+				}
+				s.mu.Unlock()
+			}
+		}
+	}()
 
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
 		now := time.Now()
+		idx := hashString(clientIP) % shardCount
+		s := &shards[idx]
 
-		mu.Lock()
-		// 每1000次请求触发一次过期条目清理
-		cleanupTick++
-		if cleanupTick >= 1000 {
-			cleanupTick = 0
-			for ip, info := range clients {
-				if now.After(info.resetAt) {
-					delete(clients, ip)
-				}
-			}
-		}
-
-		info, exists := clients[clientIP]
+		s.mu.Lock()
+		info, exists := s.m[clientIP]
 		if !exists || now.After(info.resetAt) {
-			clients[clientIP] = &clientInfo{
+			s.m[clientIP] = &clientInfo{
 				count:   1,
 				resetAt: now.Add(window),
 			}
-			mu.Unlock()
+			s.mu.Unlock()
 			c.Next()
 			return
 		}
 
 		if info.count >= maxRequests {
-			mu.Unlock()
+			s.mu.Unlock()
 			c.Header("Retry-After", fmt.Sprintf("%d", int(window.Seconds())))
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"code":    "RATE_LIMITED",
@@ -196,22 +213,40 @@ func RateLimitMiddleware(maxRequests int, window time.Duration) gin.HandlerFunc 
 		}
 
 		info.count++
-		mu.Unlock()
+		s.mu.Unlock()
 		c.Next()
 	}
+}
+
+func hashString(s string) uint32 {
+	var h uint32
+	for i := 0; i < len(s); i++ {
+		h = h*31 + uint32(s[i])
+	}
+	return h
 }
 
 // RequestIDMiddleware 请求ID中间件
 func RequestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
-		if requestID == "" {
+		if requestID == "" || len(requestID) > 64 || !isValidRequestID(requestID) {
 			requestID = generateRequestID()
 		}
 		c.Set("request_id", requestID)
 		c.Writer.Header().Set("X-Request-ID", requestID)
 		c.Next()
 	}
+}
+
+func isValidRequestID(id string) bool {
+	for _, ch := range id {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func generateRequestID() string {

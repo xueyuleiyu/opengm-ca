@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net/http"
 	"os"
@@ -59,35 +56,8 @@ func InitOCSPResponder(certFile, keyFile string) error {
 		return nil
 	}
 
-	// 未配置时生成临时证书（仅用于测试/开发）
-	log.Warn().Msg("OCSP Responder 未配置正式证书，正在生成临时自签名证书（生产环境不可信任）")
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return err
-	}
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			CommonName: "openGM-CA OCSP Responder (TEMPORARY)",
-		},
-		NotBefore:             time.Now().Add(-24 * time.Hour),
-		NotAfter:              time.Now().AddDate(1, 0, 0),
-		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageOCSPSigning},
-		BasicConstraintsValid: true,
-	}
-	certBytes, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
-	if err != nil {
-		return err
-	}
-	cert, err := x509.ParseCertificate(certBytes)
-	if err != nil {
-		return err
-	}
-	ocspResponderCert = cert
-	ocspResponderKey = key
-	ocspResponderInitialized = true
-	return nil
+	// 未配置时直接返回错误，禁止自动生成临时证书
+	return fmt.Errorf("OCSP Responder 证书未配置，请设置 responder_cert_file 和 responder_key_file")
 }
 
 func parseCertificatePEM(data []byte) (*x509.Certificate, error) {

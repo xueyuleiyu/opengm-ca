@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,19 +39,15 @@ func NewAuditService(repo *repository.AuditRepository, enabled, hashChain bool) 
 		backupFile: "/var/log/opengm-ca/audit_backup.log", // 备份文件路径
 	}
 	if hashChain {
-		// 异步初始化lastHash，避免阻塞服务启动
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			h, err := repo.GetLastHash(ctx)
-			if err != nil {
-				log.Warn().Err(err).Msg("审计哈希链初始化失败，使用空genesis hash")
-				h = ""
-			}
-			s.hashMu.Lock()
-			s.lastHash = h
-			s.hashMu.Unlock()
-		}()
+		// 同步初始化lastHash，避免启动期竞态（初始化通常<10ms，对启动影响极小）
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		h, err := repo.GetLastHash(ctx)
+		cancel()
+		if err != nil {
+			log.Warn().Err(err).Msg("审计哈希链初始化失败，使用空genesis hash")
+			h = ""
+		}
+		s.lastHash = h
 	}
 	// 使用单worker串行写入，确保审计日志严格连续
 	s.wg.Add(1)
@@ -74,13 +73,28 @@ func (s *AuditService) worker() {
 	}()
 	for auditLog := range s.logQueue {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := s.repo.Create(bgCtx, auditLog); err != nil {
-			log.Warn().Err(err).Msg("审计日志写入失败")
-		} else if s.hashChain && auditLog.CurrHash != "" {
+
+		// 在worker串行路径中计算hash，确保计算与状态更新原子化
+		if s.hashChain {
 			s.hashMu.Lock()
-			s.lastHash = auditLog.CurrHash
+			auditLog.PrevHash = s.lastHash
+			auditLog.CurrHash = auditLog.ComputeHash(s.lastHash)
+			pendingHash := auditLog.CurrHash
 			s.hashMu.Unlock()
+
+			if err := s.repo.Create(bgCtx, auditLog); err != nil {
+				log.Warn().Err(err).Msg("审计日志写入失败")
+			} else {
+				s.hashMu.Lock()
+				s.lastHash = pendingHash
+				s.hashMu.Unlock()
+			}
+		} else {
+			if err := s.repo.Create(bgCtx, auditLog); err != nil {
+				log.Warn().Err(err).Msg("审计日志写入失败")
+			}
 		}
+
 		cancel()
 	}
 }
@@ -110,16 +124,7 @@ func (s *AuditService) Log(ctx context.Context, eventType model.EventType, sever
 
 	auditLog.RecordContent = auditLog.BuildRecordContent()
 
-	if s.hashChain {
-		s.hashMu.Lock()
-		prevHash := s.lastHash
-		auditLog.PrevHash = prevHash
-		auditLog.CurrHash = auditLog.ComputeHash(prevHash)
-		s.hashMu.Unlock()
-	} else {
-		auditLog.CurrHash = auditLog.ComputeHash("")
-	}
-
+	// Hash计算已移入worker串行路径，此处不再计算，避免竞态
 	select {
 	case s.logQueue <- auditLog:
 		// 成功写入队列
@@ -132,7 +137,7 @@ func (s *AuditService) Log(ctx context.Context, eventType model.EventType, sever
 // writeToBackup 将审计日志写入备份文件
 func (s *AuditService) writeToBackup(auditLog *model.AuditLog) {
 	s.droppedCount.Add(1)
-	
+
 	// 每100次丢弃记录一次警告日志，避免日志泛滥
 	if s.droppedCount.Load()%100 == 1 {
 		log.Warn().
@@ -140,15 +145,15 @@ func (s *AuditService) writeToBackup(auditLog *model.AuditLog) {
 			Int("queue_size", 5000).
 			Msg("审计日志队列已满，部分日志写入备份文件")
 	}
-	
+
 	// 尝试写入备份文件（异步，不阻塞）
-	go func(log *model.AuditLog) {
+	go func(al *model.AuditLog) {
 		// 简单的JSON序列化写入文件
 		// 注意：这里不保证顺序，仅作为降级备份
 		log.Warn().
 			Str("backup_file", s.backupFile).
-			Str("actor", log.Actor).
-			Str("action", log.Action).
+			Str("actor", al.Actor).
+			Str("action", al.Action).
 			Msg("审计日志降级备份")
 	}(auditLog)
 }
@@ -168,4 +173,24 @@ func (s *AuditService) ListLogs(ctx context.Context, filters map[string]interfac
 // VerifyChain 验证审计日志哈希链
 func (s *AuditService) VerifyChain(ctx context.Context, startID, endID int64) (*model.AuditVerifyResult, error) {
 	return s.repo.VerifyHashChain(ctx, startID, endID)
+}
+
+// BackupFilePath 返回当前备份文件路径
+func (s *AuditService) BackupFilePath() string {
+	return s.backupFile
+}
+
+// ensureBackupDir 确保备份目录存在且可写（在初始化时调用）
+func ensureBackupDir(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return fmt.Errorf("创建审计备份目录失败: %w", err)
+	}
+	// 测试可写性
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
+	if err != nil {
+		return fmt.Errorf("审计备份文件不可写: %w", err)
+	}
+	f.Close()
+	return nil
 }

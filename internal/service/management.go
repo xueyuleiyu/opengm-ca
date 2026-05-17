@@ -18,24 +18,26 @@ const defaultCRLNextUpdateHours = 48
 
 // ManagementService 证书管理服务
 type ManagementService struct {
-	certRepo        *repository.CertificateRepository
-	caRepo          *repository.CAChainRepository
-	caEngine        *core.CAEngine
-	auditSvc        *AuditService
-	nextUpdateHours int
+	certRepo              *repository.CertificateRepository
+	caRepo                *repository.CAChainRepository
+	caEngine              *core.CAEngine
+	auditSvc              *AuditService
+	nextUpdateHours       int
+	includeExpiredEntries bool
 }
 
 // NewManagementService 创建证书管理服务
-func NewManagementService(certRepo *repository.CertificateRepository, caRepo *repository.CAChainRepository, caEngine *core.CAEngine, auditSvc *AuditService, nextUpdateHours int) *ManagementService {
+func NewManagementService(certRepo *repository.CertificateRepository, caRepo *repository.CAChainRepository, caEngine *core.CAEngine, auditSvc *AuditService, nextUpdateHours int, includeExpiredEntries bool) *ManagementService {
 	if nextUpdateHours <= 0 {
 		nextUpdateHours = defaultCRLNextUpdateHours
 	}
 	return &ManagementService{
-		certRepo:        certRepo,
-		caRepo:          caRepo,
-		caEngine:        caEngine,
-		auditSvc:        auditSvc,
-		nextUpdateHours: nextUpdateHours,
+		certRepo:              certRepo,
+		caRepo:                caRepo,
+		caEngine:              caEngine,
+		auditSvc:              auditSvc,
+		nextUpdateHours:       nextUpdateHours,
+		includeExpiredEntries: includeExpiredEntries,
 	}
 }
 
@@ -84,11 +86,11 @@ func (s *ManagementService) RevokeCertificate(ctx context.Context, certID int64,
 	metrics.IncCertsRevoked()
 
 	// 吊销成功后立即生成并保存CRL
+	// 注意：证书状态已设为REVOKED，即使CRL生成失败也不回滚，避免状态不一致。
+	// 如果CRL生成失败，管理员应手动触发CRL重新生成。
 	if err := s.generateAndSaveCRL(ctx, cert.CAID); err != nil {
-		if rbErr := s.certRepo.UpdateStatus(ctx, certID, model.CertStatusValid, nil, 0); rbErr != nil {
-			log.Error().Err(rbErr).Int64("cert_id", certID).Msg("吊销证书后CRL生成失败，回滚也失败")
-		}
-		return fmt.Errorf("吊销成功但CRL生成失败，已回滚: %w", err)
+		log.Error().Err(err).Int64("cert_id", certID).Msg("吊销成功但CRL生成失败，证书状态保持REVOKED，请手动重新生成CRL")
+		return fmt.Errorf("证书已吊销但CRL生成失败: %w", err)
 	}
 
 	// 审计日志

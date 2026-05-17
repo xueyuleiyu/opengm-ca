@@ -381,6 +381,11 @@ func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig
 	if err != nil {
 		return nil, fmt.Errorf("生成根CA序列号失败: %w", err)
 	}
+	now := time.Now()
+	keyID, err := GenerateKeyID(pubKey)
+	if err != nil {
+		return nil, fmt.Errorf("生成根CA SubjectKeyId 失败: %w", err)
+	}
 	template := &x509.Certificate{
 		SerialNumber: rootSerial,
 		Subject: pkix.Name{
@@ -389,13 +394,13 @@ func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig
 			Country:            []string{req.Subject.Country},
 			OrganizationalUnit: []string{req.Subject.OrganizationalUnit},
 		},
-		NotBefore:             time.Now().Add(-24 * time.Hour),
-		NotAfter:              time.Now().AddDate(req.ValidityYears, 0, 0),
+		NotBefore:             now.Add(-24 * time.Hour),
+		NotAfter:              now.AddDate(req.ValidityYears, 0, 0),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            2,
-		SubjectKeyId:          GenerateKeyID(pubKey),
+		SubjectKeyId:          keyID,
 	}
 
 	// 自签名
@@ -444,6 +449,11 @@ func (e *CAEngine) createIntermediateCA(ctx context.Context, parent *CAInstance,
 	if err != nil {
 		return nil, fmt.Errorf("生成中间CA序列号失败: %w", err)
 	}
+	now := time.Now()
+	keyID, err := GenerateKeyID(pubKey)
+	if err != nil {
+		return nil, fmt.Errorf("生成中间CA SubjectKeyId 失败: %w", err)
+	}
 	template := &x509.Certificate{
 		SerialNumber: interSerial,
 		Subject: pkix.Name{
@@ -451,13 +461,13 @@ func (e *CAEngine) createIntermediateCA(ctx context.Context, parent *CAInstance,
 			Organization: []string{req.Subject.Organization},
 			Country:      []string{req.Subject.Country},
 		},
-		NotBefore:             time.Now().Add(-24 * time.Hour),
-		NotAfter:              time.Now().AddDate(req.ValidityYears, 0, 0),
+		NotBefore:             now.Add(-24 * time.Hour),
+		NotAfter:              now.AddDate(req.ValidityYears, 0, 0),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            req.MaxPathLen,
-		SubjectKeyId:          GenerateKeyID(pubKey),
+		SubjectKeyId:          keyID,
 		AuthorityKeyId:        parent.Cert.SubjectKeyId,
 	}
 
@@ -517,6 +527,13 @@ func (e *CAEngine) IssueCertificate(ctx context.Context, caName string, req *mod
 	if template.NotAfter.After(ca.Cert.NotAfter) {
 		return nil, fmt.Errorf("终端证书有效期(%s)不得超过签名CA有效期(%s)", template.NotAfter.Format(time.RFC3339), ca.Cert.NotAfter.Format(time.RFC3339))
 	}
+
+	// 设置SubjectKeyId
+	keyID, err := GenerateKeyID(pubKey)
+	if err != nil {
+		return nil, fmt.Errorf("生成SubjectKeyId失败: %w", err)
+	}
+	template.SubjectKeyId = keyID
 
 	// 使用CA签名
 	parentCert := ca.Cert
@@ -611,19 +628,17 @@ func generateSerialNumber() (*big.Int, error) {
 }
 
 // GenerateKeyID 生成主题密钥标识符 (RFC 5280: SHA-256 hash of public key DER, truncated to 20 bytes)
-func GenerateKeyID(pubKey interface{}) []byte {
+func GenerateKeyID(pubKey interface{}) ([]byte, error) {
 	pubDER, err := smx509.MarshalPKIXPublicKey(pubKey)
 	if err != nil {
 		// Fallback to standard x509 for non-SM2 keys
 		pubDER, err = x509.MarshalPKIXPublicKey(pubKey)
 		if err != nil {
-			// 公钥序列化失败是系统级异常，返回固定零值（调用方应检查并终止流程）
-			log.Error().Err(err).Msg("无法序列化公钥生成SubjectKeyId")
-			return make([]byte, 20)
+			return nil, fmt.Errorf("序列化公钥失败: %w", err)
 		}
 	}
 	hash := sha256.Sum256(pubDER)
-	return hash[:20]
+	return hash[:20], nil
 }
 
 // buildCertTemplate 根据请求构建证书模板
