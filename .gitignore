@@ -97,3 +97,8 @@ yarn-error.log
 *.tar.gz
 *.zip
 *.rar
+
+# Test reports
+test_results_*.md
+frontend_backend_alignment_report_*.md
+COMPREHENSIVE_TEST_REPORT.md

@@ -753,7 +753,7 @@ const statusFilter=document.getElementById('certFilterStatus').value;
 const cnFilter=document.getElementById('certFilterCN').value.trim();
 let url='/api/v1/certificates?page='+page+'&page_size=10';
 if(statusFilter)url+='&status='+statusFilter;
-if(cnFilter)url+='&cn='+encodeURIComponent(cnFilter);
+if(cnFilter)url+='&subject_cn='+encodeURIComponent(cnFilter);
 const data=await api('GET',url);
 if(data.code!=='OK'){showError('certListContent',data.message||'加载证书列表失败');return;}
 if(!data.data||!data.data.items||!data.data.items.length){
