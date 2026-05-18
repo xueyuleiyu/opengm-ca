@@ -47,22 +47,24 @@ func (r *CertificateRepository) GetBySerialNumber(ctx context.Context, caID int,
 	return cert, nil
 }
 
-// UpdateDualCertPairID 更新双证书配对关系
+// UpdateDualCertPairID 更新双证书配对关系（事务保证原子性）
 func (r *CertificateRepository) UpdateDualCertPairID(ctx context.Context, signCertID, encCertID int64) error {
-	_, err := r.db.NewUpdate().Model((*model.Certificate)(nil)).
-		Set("dual_cert_pair_id = ?", encCertID).
-		Set("updated_at = NOW()").
-		Where("id = ?", signCertID).
-		Exec(ctx)
-	if err != nil {
+	return r.db.RunInTx(ctx, nil, func(txCtx context.Context, tx bun.Tx) error {
+		_, err := tx.NewUpdate().Model((*model.Certificate)(nil)).
+			Set("dual_cert_pair_id = ?", encCertID).
+			Set("updated_at = NOW()").
+			Where("id = ?", signCertID).
+			Exec(txCtx)
+		if err != nil {
+			return err
+		}
+		_, err = tx.NewUpdate().Model((*model.Certificate)(nil)).
+			Set("dual_cert_pair_id = ?", signCertID).
+			Set("updated_at = NOW()").
+			Where("id = ?", encCertID).
+			Exec(txCtx)
 		return err
-	}
-	_, err = r.db.NewUpdate().Model((*model.Certificate)(nil)).
-		Set("dual_cert_pair_id = ?", signCertID).
-		Set("updated_at = NOW()").
-		Where("id = ?", encCertID).
-		Exec(ctx)
-	return err
+	})
 }
 
 // List 查询证书列表

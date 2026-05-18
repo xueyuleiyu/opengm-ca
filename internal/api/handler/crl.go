@@ -82,8 +82,7 @@ func (h *CRLHandler) GenerateCRL(c *gin.Context) {
 	}
 
 	if h.auditSvc != nil {
-		actor, _ := c.Get("username")
-		actorStr, _ := actor.(string)
+		actorStr := getCurrentUser(c)
 		h.auditSvc.Log(ctx, model.EventCRLGenerate, model.SeverityInfo, actorStr, c.ClientIP(), "CRL", caName,
 			"生成CRL", map[string]interface{}{"ca_name": caName, "entries": len(revokedEntries)}, model.ResultSuccess, "")
 	}

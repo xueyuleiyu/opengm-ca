@@ -235,13 +235,15 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 	metrics.IncCertsIssued(req.CertType)
 
 	// 9. 审计日志
-	s.auditSvc.Log(ctx, model.EventCertIssue, model.SeverityInfo, issuedBy, actorIP, "CERTIFICATE", certModel.SerialNumber,
-		fmt.Sprintf("签发%s证书: %s", req.CertType, req.Subject.CommonName), map[string]interface{}{
-			"cert_id":   certModel.ID,
-			"serial":    certModel.SerialNumber,
-			"algorithm": req.Algorithm,
-			"validity":  req.ValidityDays,
-		}, model.ResultSuccess, "")
+	if s.auditSvc != nil {
+		s.auditSvc.Log(ctx, model.EventCertIssue, model.SeverityInfo, issuedBy, actorIP, "CERTIFICATE", certModel.SerialNumber,
+			fmt.Sprintf("签发%s证书: %s", req.CertType, req.Subject.CommonName), map[string]interface{}{
+				"cert_id":   certModel.ID,
+				"serial":    certModel.SerialNumber,
+				"algorithm": req.Algorithm,
+				"validity":  req.ValidityDays,
+			}, model.ResultSuccess, "")
+	}
 
 	// 10. 构建响应
 	resp := &model.CertificateResponse{

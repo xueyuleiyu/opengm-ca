@@ -47,11 +47,7 @@ func (h *CertificateHandler) Enroll(c *gin.Context) {
 	}
 
 	// 获取当前用户
-	username, _ := c.Get("username")
-	actor := "anonymous"
-	if u, ok := username.(string); ok {
-		actor = u
-	}
+	actor := getCurrentUser(c)
 
 	resp, err := h.enrollSvc.EnrollCertificate(c.Request.Context(), &req, actor, c.ClientIP())
 	if err != nil {
@@ -137,14 +133,7 @@ func (h *CertificateHandler) List(c *gin.Context) {
 		filters["serial_number"] = serial
 	}
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	if pageSize < 1 {
-		pageSize = 20
-	}
-	if pageSize > 100 {
-		pageSize = 100
-	}
+	page, pageSize, _ := parsePaginationParams(c, 20)
 
 	certs, total, err := h.mgmtSvc.ListCertificates(c.Request.Context(), filters, page, pageSize)
 	if err != nil {
@@ -203,11 +192,7 @@ func (h *CertificateHandler) Revoke(c *gin.Context) {
 		return
 	}
 
-	username, _ := c.Get("username")
-	actor := "anonymous"
-	if u, ok := username.(string); ok {
-		actor = u
-	}
+	actor := getCurrentUser(c)
 
 	if err := h.mgmtSvc.RevokeCertificate(c.Request.Context(), certID, req.Reason, req.ReasonText, actor, c.ClientIP()); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"code": "REVOKE_FAILED", "message": err.Error()})

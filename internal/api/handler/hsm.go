@@ -63,7 +63,7 @@ func (h *HSMHandler) GenerateKey(c *gin.Context) {
 		log.Warn().Str("handle", handle).Msg("HSM生成公钥为空")
 	}
 	if h.auditSvc != nil {
-		h.auditSvc.Log(c.Request.Context(), model.EventKeyGenerate, model.SeverityInfo, c.GetString("username"), c.ClientIP(), "HSM_KEY", handle,
+		h.auditSvc.Log(c.Request.Context(), model.EventKeyGenerate, model.SeverityInfo, getCurrentUser(c), c.ClientIP(), "HSM_KEY", handle,
 			"HSM生成密钥", map[string]interface{}{"algorithm": req.Algorithm, "key_type": req.KeyType}, model.ResultSuccess, "")
 	}
 	c.JSON(http.StatusOK, gin.H{"code": "OK", "data": gin.H{"handle": handle}})
@@ -77,7 +77,7 @@ func (h *HSMHandler) DeleteKey(c *gin.Context) {
 		return
 	}
 	if h.auditSvc != nil {
-		h.auditSvc.Log(c.Request.Context(), model.EventKeyDelete, model.SeverityWarn, c.GetString("username"), c.ClientIP(), "HSM_KEY", handle,
+		h.auditSvc.Log(c.Request.Context(), model.EventKeyDelete, model.SeverityWarn, getCurrentUser(c), c.ClientIP(), "HSM_KEY", handle,
 			"HSM删除密钥", nil, model.ResultSuccess, "")
 	}
 	c.JSON(http.StatusOK, gin.H{"code": "OK"})

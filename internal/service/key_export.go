@@ -72,12 +72,14 @@ func (s *KeyExportService) CreateExportRequest(ctx context.Context, keyID, reque
 	}
 
 	// 4. 审计日志
-	s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityInfo, requester, "", "KEY", keyID,
-		fmt.Sprintf("提交私钥导出申请: %s", req.RequestID), map[string]interface{}{
-			"request_id": req.RequestID,
-			"key_id":     keyID,
-			"reason":     reason,
-		}, model.ResultSuccess, "")
+	if s.auditSvc != nil {
+		s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityInfo, requester, "", "KEY", keyID,
+			fmt.Sprintf("提交私钥导出申请: %s", req.RequestID), map[string]interface{}{
+				"request_id": req.RequestID,
+				"key_id":     keyID,
+				"reason":     reason,
+			}, model.ResultSuccess, "")
+	}
 
 	return req, nil
 }
@@ -114,12 +116,14 @@ func (s *KeyExportService) ApproveExportRequest(ctx context.Context, requestID, 
 		}
 	}
 
-	s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityInfo, approver, "", "KEY", req.KeyID,
-		fmt.Sprintf("审批通过私钥导出申请: %s", requestID), map[string]interface{}{
-			"request_id": requestID,
-			"approver":   approver,
-			"count":      count,
-		}, model.ResultSuccess, "")
+	if s.auditSvc != nil {
+		s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityInfo, approver, "", "KEY", req.KeyID,
+			fmt.Sprintf("审批通过私钥导出申请: %s", requestID), map[string]interface{}{
+				"request_id": requestID,
+				"approver":   approver,
+				"count":      count,
+			}, model.ResultSuccess, "")
+	}
 
 	return nil
 }
@@ -148,12 +152,14 @@ func (s *KeyExportService) RejectExportRequest(ctx context.Context, requestID, a
 		return fmt.Errorf("更新请求状态失败: %w", err)
 	}
 
-	s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityWarn, approver, "", "KEY", req.KeyID,
-		fmt.Sprintf("拒绝私钥导出申请: %s", requestID), map[string]interface{}{
-			"request_id": requestID,
-			"approver":   approver,
-			"comment":    comment,
-		}, model.ResultFailed, "")
+	if s.auditSvc != nil {
+		s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityWarn, approver, "", "KEY", req.KeyID,
+			fmt.Sprintf("拒绝私钥导出申请: %s", requestID), map[string]interface{}{
+				"request_id": requestID,
+				"approver":   approver,
+				"comment":    comment,
+			}, model.ResultFailed, "")
+	}
 
 	return nil
 }
@@ -230,9 +236,11 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 		return nil, fmt.Errorf("无法获取操作员信息: %w", err)
 	}
 	if err := verifyPassword(op.PasswordHash, req.CurrentPassword); err != nil {
-		s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityWarn, actor, actorIP, "KEY", req.KeyID,
-			"私钥导出失败：二次认证密码错误", map[string]interface{}{"key_id": req.KeyID},
-			model.ResultFailed, "二次认证失败")
+		if s.auditSvc != nil {
+			s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityWarn, actor, actorIP, "KEY", req.KeyID,
+				"私钥导出失败：二次认证密码错误", map[string]interface{}{"key_id": req.KeyID},
+				model.ResultFailed, "二次认证失败")
+		}
 		return nil, fmt.Errorf("二次认证失败：密码错误")
 	}
 
@@ -243,33 +251,7 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 		}
 	}
 
-	// 6. 解密私钥
-	plainKey, err := s.keyStore.RetrieveKey(keyModel)
-	if err != nil {
-		s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityCritical, actor, actorIP, "KEY", req.KeyID,
-			"私钥导出失败：解密失败", map[string]interface{}{"key_id": req.KeyID, "reason": req.Reason},
-			model.ResultFailed, err.Error())
-		return nil, fmt.Errorf("解密私钥失败: %w", err)
-	}
-	// 导出完成后安全擦除明文私钥
-	defer func() {
-		for i := range plainKey {
-			plainKey[i] = 0
-		}
-	}()
-
-	// 7. 使用密码加密私钥 (PBKDF2 + AES-256-GCM)，若密码为空则返回明文
-	var encryptedPEM string
-	if req.Password != "" {
-		encryptedPEM, err = encryptPrivateKeyWithPassword(plainKey, req.Password)
-		if err != nil {
-			return nil, fmt.Errorf("加密导出私钥失败: %w", err)
-		}
-	} else {
-		encryptedPEM = string(plainKey)
-	}
-
-	// 8. 先检查日限额
+	// 6. 限额检查（在解密前执行，避免无效解密的性能和安全开销）
 	if s.cfg.KeyManagement.Export.MaxDailyExports > 0 {
 		dailyCount, err := s.keyRepo.GetDailyExportCount(ctx)
 		if err != nil {
@@ -279,14 +261,41 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 			return nil, fmt.Errorf("今日私钥导出次数已达上限(%d/%d)", dailyCount, s.cfg.KeyManagement.Export.MaxDailyExports)
 		}
 	}
-
-	// 8b. 原子更新单密钥导出计数
+	// 6b. 原子更新单密钥导出计数
 	ok, err := s.keyRepo.IncrementExportCount(ctx, req.KeyID)
 	if err != nil {
 		return nil, fmt.Errorf("更新导出计数失败: %w", err)
 	}
 	if !ok {
 		return nil, fmt.Errorf("该密钥导出次数已达上限")
+	}
+
+	// 7. 解密私钥
+	plainKey, err := s.keyStore.RetrieveKey(keyModel)
+	if err != nil {
+		if s.auditSvc != nil {
+			s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityCritical, actor, actorIP, "KEY", req.KeyID,
+				"私钥导出失败：解密失败", map[string]interface{}{"key_id": req.KeyID, "reason": req.Reason},
+				model.ResultFailed, err.Error())
+		}
+		return nil, fmt.Errorf("解密私钥失败: %w", err)
+	}
+	// 导出完成后安全擦除明文私钥
+	defer func() {
+		for i := range plainKey {
+			plainKey[i] = 0
+		}
+	}()
+
+	// 8. 使用密码加密私钥 (PBKDF2 + AES-256-GCM)，若密码为空则返回明文
+	var encryptedPEM string
+	if req.Password != "" {
+		encryptedPEM, err = encryptPrivateKeyWithPassword(plainKey, req.Password)
+		if err != nil {
+			return nil, fmt.Errorf("加密导出私钥失败: %w", err)
+		}
+	} else {
+		encryptedPEM = string(plainKey)
 	}
 
 	// 9. 构建响应
@@ -308,15 +317,17 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 	}
 
 	// 10. 审计日志（CRITICAL级别）
-	s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityCritical, actor, actorIP, "KEY", req.KeyID,
-		fmt.Sprintf("导出私钥：%s，原因：%s", req.KeyID, req.Reason), map[string]interface{}{
-			"key_id":            req.KeyID,
-			"algorithm":         keyModel.Algorithm,
-			"export_format":     req.ExportFormat,
-			"reason":            req.Reason,
-			"remaining_exports": remaining,
-			"encrypted":         req.Password != "",
-		}, model.ResultSuccess, "")
+	if s.auditSvc != nil {
+		s.auditSvc.Log(ctx, model.EventKeyExport, model.SeverityCritical, actor, actorIP, "KEY", req.KeyID,
+			fmt.Sprintf("导出私钥：%s，原因：%s", req.KeyID, req.Reason), map[string]interface{}{
+				"key_id":            req.KeyID,
+				"algorithm":         keyModel.Algorithm,
+				"export_format":     req.ExportFormat,
+				"reason":            req.Reason,
+				"remaining_exports": remaining,
+				"encrypted":         req.Password != "",
+			}, model.ResultSuccess, "")
+	}
 
 	return resp, nil
 }

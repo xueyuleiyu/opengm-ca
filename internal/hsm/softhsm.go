@@ -196,9 +196,13 @@ func (h *SoftHSM) Sign(handle string, digest []byte, hashAlgo string) ([]byte, e
 		return nil, fmt.Errorf("解密私钥失败: %w", err)
 	}
 
-	privKey, err := x509.ParsePKCS8PrivateKey(privBytes)
+	privKey, err := smx509.ParsePKCS8PrivateKey(privBytes)
 	if err != nil {
-		return nil, fmt.Errorf("解析私钥失败: %w", err)
+		// 回退到标准库（RSA/EC）
+		privKey, err = x509.ParsePKCS8PrivateKey(privBytes)
+		if err != nil {
+			return nil, fmt.Errorf("解析私钥失败: %w", err)
+		}
 	}
 
 	// 签名完成后安全擦解密密钥明文
@@ -235,7 +239,15 @@ func (h *SoftHSM) GetPublicKey(handle string) (crypto.PublicKey, error) {
 		return nil, fmt.Errorf("公钥PEM解析失败")
 	}
 
-	return x509.ParsePKIXPublicKey(block.Bytes)
+	pubKey, err := smx509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		// 回退到标准库（RSA/EC）
+		pubKey, err = x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("解析公钥失败: %w", err)
+		}
+	}
+	return pubKey, nil
 }
 
 // GetPublicKeyPEM 获取公钥PEM
@@ -317,9 +329,13 @@ func (h *SoftHSM) ImportKey(algorithm string, privateKey interface{}, keyType st
 		return "", fmt.Errorf("不支持的私钥类型")
 	}
 
-	pubBytes, err := x509.MarshalPKIXPublicKey(pubKey)
+	pubBytes, err := smx509.MarshalPKIXPublicKey(pubKey)
 	if err != nil {
-		return "", fmt.Errorf("序列化公钥失败: %w", err)
+		// 回退到标准库（RSA/EC）
+		pubBytes, err = x509.MarshalPKIXPublicKey(pubKey)
+		if err != nil {
+			return "", fmt.Errorf("序列化公钥失败: %w", err)
+		}
 	}
 	pubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubBytes}))
 

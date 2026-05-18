@@ -172,12 +172,16 @@ type AuditConfig struct {
 	RetentionDays    int  `mapstructure:"retention_days"`
 	AsyncWrite       bool `mapstructure:"async_write"`
 	HashChainEnabled bool `mapstructure:"hash_chain_enabled"`
+	QueueCapacity    int  `mapstructure:"queue_capacity"`
+	BackupPath       string `mapstructure:"backup_path"`
 }
 
 // AuthConfig 认证配置
 type AuthConfig struct {
-	JWT    JWTConfig    `mapstructure:"jwt"`
-	APIKey APIKeyConfig `mapstructure:"api_key"`
+	JWT           JWTConfig    `mapstructure:"jwt"`
+	APIKey        APIKeyConfig `mapstructure:"api_key"`
+	MaxLoginFail  int          `mapstructure:"max_login_fail"`
+	LockDuration  time.Duration `mapstructure:"lock_duration"`
 }
 
 // JWTConfig JWT配置
@@ -265,6 +269,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("cert_policy.default_validity_days", 365)
 	v.SetDefault("crl.update_interval_hours", 24)
 	v.SetDefault("audit.retention_days", 2555)
+	v.SetDefault("audit.queue_capacity", 5000)
+	v.SetDefault("audit.backup_path", "/var/log/opengm-ca/audit_backup.log")
+	v.SetDefault("auth.max_login_fail", 5)
+	v.SetDefault("auth.lock_duration", "30m")
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 }

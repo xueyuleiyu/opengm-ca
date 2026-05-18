@@ -85,18 +85,20 @@ func (s *CertExpirationScheduler) scan(ctx context.Context) {
 				Int("count", len(certs)).
 				Msg("发现即将过期证书")
 
-			for _, cert := range certs {
-				s.auditSvc.Log(ctx, model.EventCertExpireWarn, t.severity,
-					"SYSTEM", "", "CERTIFICATE", cert.SerialNumber,
-					fmt.Sprintf("证书将在%d天内过期: %s", t.days, cert.SubjectDN),
-					map[string]interface{}{
-						"cert_id":   cert.ID,
-						"serial":    cert.SerialNumber,
-						"subject":   cert.SubjectDN,
-						"valid_to":  cert.ValidTo,
-						"days_left": t.days,
-					},
-					model.ResultSuccess, "")
+			if s.auditSvc != nil {
+				for _, cert := range certs {
+					s.auditSvc.Log(ctx, model.EventCertExpireWarn, t.severity,
+						"SYSTEM", "", "CERTIFICATE", cert.SerialNumber,
+						fmt.Sprintf("证书将在%d天内过期: %s", t.days, cert.SubjectDN),
+						map[string]interface{}{
+							"cert_id":   cert.ID,
+							"serial":    cert.SerialNumber,
+							"subject":   cert.SubjectDN,
+							"valid_to":  cert.ValidTo,
+							"days_left": t.days,
+						},
+						model.ResultSuccess, "")
+				}
 			}
 		}
 	}

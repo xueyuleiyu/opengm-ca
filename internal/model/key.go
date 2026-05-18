@@ -165,8 +165,8 @@ func (k *KeyExportRequestRecord) TableName() string {
 // KeyExportApprovalRecord 私钥导出审批记录
 type KeyExportApprovalRecord struct {
 	ID         int64      `bun:"id,pk,autoincrement" json:"id"`
-	RequestID  string     `bun:"request_id,notnull" json:"request_id"`
-	Approver   string     `bun:"approver,notnull" json:"approver"`
+	RequestID  string     `bun:"request_id,notnull,unique:uk_request_approver" json:"request_id"`
+	Approver   string     `bun:"approver,notnull,unique:uk_request_approver" json:"approver"`
 	ApprovedAt *time.Time `bun:"approved_at,default:current_timestamp" json:"approved_at,omitempty"`
 	Comment    string     `bun:"comment" json:"comment,omitempty"`
 	Approved   bool       `bun:"approved,notnull,default:true" json:"approved"`

@@ -481,8 +481,13 @@ tr:hover{background:#f8f9fa}
 
 <script>
 const API_BASE='';
+function htmlEscape(str){
+  if(str==null||str===undefined)return'';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 let token=sessionStorage.getItem('ca_token')||'';
 let user=JSON.parse(sessionStorage.getItem('ca_user')||'{}');
+
 
 if(token){showApp();loadDashboard();}
 
@@ -533,7 +538,7 @@ if(el)el.innerHTML='<div class="empty"><div class="empty-icon">'+(icon||'&#12819
 }
 function showError(id,msg){
 const el=document.getElementById(id);
-if(el)el.innerHTML='<div class="empty"><div class="empty-icon">&#9888;</div><span>'+(msg||'加载失败，请稍后重试')+'</span></div>';
+if(el)el.innerHTML='<div class="empty"><div class="empty-icon">&#9888;</div><span>'+htmlEscape(msg||'加载失败，请稍后重试')+'</span></div>';
 }
 let toastTimer=null;
 function showToast(msg,type){
@@ -542,7 +547,7 @@ const container=document.getElementById('toastContainer');
 const toast=document.createElement('div');
 const icons={error:'&#10060;',success:'&#10004;',info:'&#8505;'};
 toast.className='toast '+type;
-toast.innerHTML='<span style="font-size:16px">'+icons[type]+'</span><span>'+msg+'</span>';
+toast.innerHTML='<span style="font-size:16px">'+icons[type]+'</span><span>'+htmlEscape(msg)+'</span>';
 container.appendChild(toast);
 setTimeout(()=>{toast.style.opacity='0';toast.style.transform='translateX(20px)';toast.style.transition='all .3s ease';setTimeout(()=>toast.remove(),300);},4000);
 }
@@ -564,11 +569,13 @@ let html='';
 for(const[k,v]of Object.entries(obj)){
 if(v===null||v===undefined||v==='')continue;
 let display=v;
+const ek=htmlEscape(k);
 if(k.includes('time')||k.includes('at')||k.includes('Time'))display=formatDateTime(v);
-else if(k.includes('pem')||k.includes('PEM'))display='<div class="cert-pem">'+v+'</div>';
+else if(k.includes('pem')||k.includes('PEM'))display='<div class="cert-pem">'+htmlEscape(v)+'</div>';
 else if(typeof v==='boolean')display=v?'是':'否';
-else if(typeof v==='object')display='<pre style="font-size:12px;background:#f8f9fa;padding:8px;border-radius:4px;overflow:auto;max-height:120px">'+JSON.stringify(v,null,2)+'</pre>';
-html+='<div class="detail-row"><span class="detail-label">'+k+'</span><span class="detail-value">'+display+'</span></div>';
+else if(typeof v==='object')display='<pre style="font-size:12px;background:#f8f9fa;padding:8px;border-radius:4px;overflow:auto;max-height:120px">'+htmlEscape(JSON.stringify(v,null,2))+'</pre>';
+else display=htmlEscape(v);
+html+='<div class="detail-row"><span class="detail-label">'+ek+'</span><span class="detail-value">'+display+'</span></div>';
 }
 document.getElementById('detailModalTitle').textContent=title;
 document.getElementById('detailModalContent').innerHTML=html;
@@ -734,10 +741,12 @@ el.innerHTML=data.data.map(c=>`<tr><td>${c.id}</td><td style="font-weight:500">$
 }
 }
 
-const certCache={};
+let certCache={};
 
 async function loadCertificates(page){
 page=page||1;
+// 清空旧缓存防止无限增长
+certCache={};
 const el=document.getElementById('certListContent');
 showLoading('certListContent');
 const statusFilter=document.getElementById('certFilterStatus').value;
@@ -761,7 +770,7 @@ const sc=statusClass[c.status]||'badge-valid';
 const st=statusMap[c.status]||c.status;
 const revokeBtn=canRevoke&&c.status==='VALID'?`<button class="btn btn-danger" onclick="revokeCert(${c.id})">吊销</button>`:'';
 const exportKeyBtn=(c.key_id&&canExportKey&&c.status==='VALID')?`<button class="btn btn-warning" onclick="exportPrivateKey('${c.key_id}')">导出私钥</button>`:'';
-return `<tr><td>${c.id}</td><td><span class="tag tag-sm2">${c.cert_type}</span></td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.subject_dn}">${c.subject_dn}</td><td style="font-size:11px;color:#666">${c.serial_number.substring(0,16)}...</td><td><span class="badge ${sc}">${st}</span></td><td>${formatDate(c.valid_from)} ~ ${formatDate(c.valid_to)}</td><td class="action-btns"><button class="btn btn-secondary" onclick="showCertDetail(${c.id})">详情</button><button class="btn btn-secondary" onclick="downloadCertPEM(${c.id})">导出PEM</button>${exportKeyBtn}${revokeBtn}</td></tr>`;
+return `<tr><td>${htmlEscape(c.id)}</td><td><span class="tag tag-sm2">${htmlEscape(c.cert_type)}</span></td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${htmlEscape(c.subject_dn)}">${htmlEscape(c.subject_dn)}</td><td style="font-size:11px;color:#666">${htmlEscape((c.serial_number||'').substring(0,16))}...</td><td><span class="badge ${sc}">${htmlEscape(st)}</span></td><td>${formatDate(c.valid_from)} ~ ${formatDate(c.valid_to)}</td><td class="action-btns"><button class="btn btn-secondary" onclick="showCertDetail(${c.id})">详情</button><button class="btn btn-secondary" onclick="downloadCertPEM(${c.id})">导出PEM</button>${exportKeyBtn}${revokeBtn}</td></tr>`;
 }).join('')+'</tbody></table>';
 renderPagination('certListContent',data.data.page||page,data.data.page_size||10,data.data.total||0,'loadCertificates');
 }
@@ -889,7 +898,7 @@ actions=`<button class="btn btn-primary" style="padding:4px 10px" onclick="appro
 if(r.status==='APPROVED'&&r.requester===user.username){
 actions+=` <button class="btn btn-warning" style="padding:4px 10px" onclick="executeExportRequest('${r.request_id}')">执行导出</button>`;
 }
-return `<tr><td style="font-family:monospace;font-size:12px" title="${r.request_id}">${r.request_id.substring(0,10)}...</td><td style="font-family:monospace;font-size:12px" title="${r.key_id}">${r.key_id.substring(0,10)}...</td><td>${r.requester}</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td><td><span class="badge ${sc}">${statusText}</span></td><td style="font-size:12px;color:#666;white-space:nowrap">${formatDateTime(r.created_at)}</td><td style="font-size:12px;color:#666;white-space:nowrap">${formatDateTime(r.expires_at)}</td><td class="action-btns">${actions||'-'}</td></tr>`;
+return `<tr><td style="font-family:monospace;font-size:12px" title="${htmlEscape(r.request_id)}">${htmlEscape(r.request_id.substring(0,10))}...</td><td style="font-family:monospace;font-size:12px" title="${htmlEscape(r.key_id)}">${htmlEscape(r.key_id.substring(0,10))}...</td><td>${htmlEscape(r.requester)}</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${htmlEscape(r.reason)}">${htmlEscape(r.reason)}</td><td><span class="badge ${sc}">${htmlEscape(statusText)}</span></td><td style="font-size:12px;color:#666;white-space:nowrap">${formatDateTime(r.created_at)}</td><td style="font-size:12px;color:#666;white-space:nowrap">${formatDateTime(r.expires_at)}</td><td class="action-btns">${actions||'-'}</td></tr>`;
 }).join('')+'</tbody></table>';
 }
 
@@ -1006,10 +1015,10 @@ function showModalContent(title,content){
 let html='';
 if(typeof content==='object'){
 for(const[k,v]of Object.entries(content)){
-if(k==='cert_pem'||k==='private_key_pem'){html+=`<p><b>${k}:</b></p><div class="cert-pem">${v||''}</div>`;}
-else{html+=`<p><b>${k}:</b> ${v||'-'}</p>`;}
+if(k==='cert_pem'||k==='private_key_pem'){html+=`<p><b>${htmlEscape(k)}:</b></p><div class="cert-pem">${htmlEscape(v||'')}</div>`;}
+else{html+=`<p><b>${htmlEscape(k)}:</b> ${htmlEscape(v||'-')}</p>`;}
 }
-}else{html=`<p>${content}</p>`;}
+}else{html=`<p>${htmlEscape(content)}</p>`;}
 document.querySelector('#resultModal h3').textContent=title;
 document.getElementById('modalContent').innerHTML=html;
 document.getElementById('resultModal').classList.add('active');
@@ -1034,7 +1043,7 @@ const sevClass=severityClass[l.severity]||'badge-valid';
 const evt=eventMap[l.event_type]||l.event_type;
 const res=resultMap[l.result]||l.result;
 const resClass=resultClass[l.result]||'badge-valid';
-return `<tr><td style="font-size:12px;color:#666;white-space:nowrap">${formatDateTime(l.event_time)}</td><td><span class="tag">${evt}</span></td><td><span class="badge ${sevClass}">${sev}</span></td><td>${l.actor}</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.action}">${l.action}</td><td><span class="badge ${resClass}">${res}</span></td></tr>`;
+return `<tr><td style="font-size:12px;color:#666;white-space:nowrap">${formatDateTime(l.event_time)}</td><td><span class="tag">${htmlEscape(evt)}</span></td><td><span class="badge ${sevClass}">${htmlEscape(sev)}</span></td><td>${htmlEscape(l.actor)}</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${htmlEscape(l.action)}">${htmlEscape(l.action)}</td><td><span class="badge ${resClass}">${htmlEscape(res)}</span></td></tr>`;
 }).join('')+'</tbody></table>';
 renderPagination('auditContent',data.data.page||page,data.data.page_size||15,data.data.total||0,'loadAudit');
 }
@@ -1052,7 +1061,7 @@ const roleClass={SYS_ADMIN:'badge-sys',SEC_ADMIN:'badge-sec',AUDITOR:'badge-audi
 el.innerHTML='<table><thead><tr><th>ID</th><th>用户名</th><th>真实姓名</th><th>角色</th><th>邮箱</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead><tbody>'+list.map(op=>{
 const activeClass=op.is_active?'on':'';
 const activeText=op.is_active?'已启用':'已禁用';
-return `<tr><td>${op.id}</td><td>${op.username}</td><td>${op.real_name||'-'}</td><td><span class="badge ${roleClass[op.role]||''}">${roleMap[op.role]||op.role}</span></td><td>${op.email||'-'}</td><td><span class="switch ${activeClass}" style="vertical-align:middle"></span> <span style="font-size:12px;color:${op.is_active?'#34a853':'#ea4335'}">${activeText}</span></td><td style="font-size:12px;color:#666">${op.last_login_at?formatRelativeTime(op.last_login_at):'从未登录'}</td><td class="action-btns">${op.role!=='SUPER_ADMIN'?`<button class="btn btn-secondary" onclick="toggleOperator(${op.id},${!op.is_active})">${op.is_active?'禁用':'启用'}</button><button class="btn btn-danger" onclick="deleteOperator(${op.id})">删除</button>`:'<span style="color:#999;font-size:12px">内置账户</span>'}</td></tr>`;
+return `<tr><td>${op.id}</td><td>${htmlEscape(op.username)}</td><td>${htmlEscape(op.real_name||'-')}</td><td><span class="badge ${roleClass[op.role]||''}">${htmlEscape(roleMap[op.role]||op.role)}</span></td><td>${htmlEscape(op.email||'-')}</td><td><span class="switch ${activeClass}" style="vertical-align:middle"></span> <span style="font-size:12px;color:${op.is_active?'#34a853':'#ea4335'}">${activeText}</span></td><td style="font-size:12px;color:#666">${op.last_login_at?formatRelativeTime(op.last_login_at):'从未登录'}</td><td class="action-btns">${op.role!=='SUPER_ADMIN'?`<button class="btn btn-secondary" onclick="toggleOperator(${op.id},${!op.is_active})">${op.is_active?'禁用':'启用'}</button><button class="btn btn-danger" onclick="deleteOperator(${op.id})">删除</button>`:'<span style="color:#999;font-size:12px">内置账户</span>'}</td></tr>`;
 }).join('')+'</tbody></table>';
 }
 
@@ -1139,7 +1148,8 @@ const newPwd=document.getElementById('profileNewPwd').value;
 const confirmPwd=document.getElementById('profileConfirmPwd').value;
 if(!newPwd||newPwd.length<8){showAlert('profileAlert','新密码至少8位','error');return;}
 if(newPwd!==confirmPwd){showAlert('profileAlert','两次输入的新密码不一致','error');return;}
-const uid=user.id||1;
+const uid=user.id;
+if(!uid){showToast('用户信息无效，请重新登录','error');doLogout();return;}
 const data=await api('POST','/api/v1/operators/'+uid+'/password',{old_password:oldPwd,new_password:newPwd});
 if(data.code!=='OK'){showAlert('profileAlert',data.message||'修改失败','error');return;}
 showToast('密码修改成功，请重新登录','success');

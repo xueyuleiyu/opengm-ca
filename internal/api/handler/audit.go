@@ -37,8 +37,7 @@ func (h *AuditHandler) List(c *gin.Context) {
 		filters["end_time"] = endTime
 	}
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	page, pageSize, _ := parsePaginationParams(c, 50)
 
 	logs, total, err := h.auditSvc.ListLogs(c.Request.Context(), filters, page, pageSize)
 	if err != nil {

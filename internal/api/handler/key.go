@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/opengm-ca/opengm-ca/internal/model"
@@ -39,11 +38,7 @@ func (h *KeyHandler) Export(c *gin.Context) {
 	}
 	req.KeyID = keyID
 
-	username, _ := c.Get("username")
-	actor := "anonymous"
-	if u, ok := username.(string); ok {
-		actor = u
-	}
+	actor := getCurrentUser(c)
 
 	resp, err := h.exportSvc.ExportKey(c.Request.Context(), &req, actor, c.ClientIP())
 	if err != nil {
@@ -76,11 +71,7 @@ func (h *KeyHandler) CreateExportRequest(c *gin.Context) {
 		return
 	}
 
-	username, _ := c.Get("username")
-	actor := "anonymous"
-	if u, ok := username.(string); ok {
-		actor = u
-	}
+	actor := getCurrentUser(c)
 
 	record, err := h.exportSvc.CreateExportRequest(c.Request.Context(), keyID, actor, req.Reason, req.Password)
 	if err != nil {
@@ -107,13 +98,12 @@ func (h *KeyHandler) ApproveExportRequest(c *gin.Context) {
 	var req struct {
 		Comment string `json:"comment"`
 	}
-	c.ShouldBindJSON(&req)
-
-	username, _ := c.Get("username")
-	actor := "anonymous"
-	if u, ok := username.(string); ok {
-		actor = u
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_PARAMETER", "message": err.Error()})
+		return
 	}
+
+	actor := getCurrentUser(c)
 
 	if err := h.exportSvc.ApproveExportRequest(c.Request.Context(), requestID, actor, req.Comment); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "APPROVAL_DENIED", "message": err.Error()})
@@ -139,13 +129,12 @@ func (h *KeyHandler) RejectExportRequest(c *gin.Context) {
 	var req struct {
 		Comment string `json:"comment"`
 	}
-	c.ShouldBindJSON(&req)
-
-	username, _ := c.Get("username")
-	actor := "anonymous"
-	if u, ok := username.(string); ok {
-		actor = u
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_PARAMETER", "message": err.Error()})
+		return
 	}
+
+	actor := getCurrentUser(c)
 
 	if err := h.exportSvc.RejectExportRequest(c.Request.Context(), requestID, actor, req.Comment); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "REJECT_DENIED", "message": err.Error()})
@@ -173,9 +162,7 @@ func (h *KeyHandler) ListExportRequests(c *gin.Context) {
 		filters["status"] = status
 	}
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	offset := (page - 1) * pageSize
+	page, pageSize, offset := parsePaginationParams(c, 20)
 
 	reqs, total, err := h.exportSvc.ListExportRequests(c.Request.Context(), filters, offset, pageSize)
 	if err != nil {
@@ -254,11 +241,7 @@ func (h *KeyHandler) ExecuteExportRequest(c *gin.Context) {
 		return
 	}
 
-	username, _ := c.Get("username")
-	actor := "anonymous"
-	if u, ok := username.(string); ok {
-		actor = u
-	}
+	actor := getCurrentUser(c)
 
 	// 构造导出请求，使用审批时存储的密码
 	exportKeyReq := &model.KeyExportRequest{

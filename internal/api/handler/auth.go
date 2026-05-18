@@ -72,19 +72,20 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		failCount, incErr := h.operatorRepo.IncrementLoginFail(ctx, op.ID)
 		if incErr != nil {
 			log.Warn().Err(incErr).Int("operator_id", op.ID).Msg("增加登录失败计数失败")
-		}
-		// 检查是否需要锁定账户（使用原子递增后的最新值）
-		const maxLoginFail = 5
-		const lockDuration = 30 * time.Minute
-		if failCount >= maxLoginFail {
-			lockUntil := time.Now().Add(lockDuration)
-			if lockErr := h.operatorRepo.LockAccount(ctx, op.ID, lockUntil); lockErr != nil {
-				log.Warn().Err(lockErr).Int("operator_id", op.ID).Msg("账户锁定失败")
-			} else {
-				log.Warn().Int("operator_id", op.ID).Time("locked_until", lockUntil).Msg("账户因多次登录失败被锁定")
-				if h.auditSvc != nil {
-					h.auditSvc.Log(ctx, model.EventAdminLogin, model.SeverityCritical, req.Username, c.ClientIP(), "OPERATOR", strconv.Itoa(op.ID),
-						"账户因多次登录失败被锁定", map[string]interface{}{"username": req.Username, "fail_count": failCount}, model.ResultDenied, "")
+		} else {
+			// 检查是否需要锁定账户（仅在计数成功时使用原子递增后的最新值）
+			const maxLoginFail = 5
+			const lockDuration = 30 * time.Minute
+			if failCount >= maxLoginFail {
+				lockUntil := time.Now().Add(lockDuration)
+				if lockErr := h.operatorRepo.LockAccount(ctx, op.ID, lockUntil); lockErr != nil {
+					log.Warn().Err(lockErr).Int("operator_id", op.ID).Msg("账户锁定失败")
+				} else {
+					log.Warn().Int("operator_id", op.ID).Time("locked_until", lockUntil).Msg("账户因多次登录失败被锁定")
+					if h.auditSvc != nil {
+						h.auditSvc.Log(ctx, model.EventAdminLogin, model.SeverityCritical, req.Username, c.ClientIP(), "OPERATOR", strconv.Itoa(op.ID),
+							"账户因多次登录失败被锁定", map[string]interface{}{"username": req.Username, "fail_count": failCount}, model.ResultDenied, "")
+					}
 				}
 			}
 		}
@@ -154,7 +155,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 // InitDefaultAdmins 初始化三员管理员（允许补充创建缺失的角色）
 func (h *AuthHandler) InitDefaultAdmins(c *gin.Context) {
 	ctx := c.Request.Context()
-	actorStr := c.GetString("username")
+	actorStr := getCurrentUser(c)
 
 	ops, err := h.operatorRepo.ListAll(ctx)
 	if err != nil {

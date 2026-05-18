@@ -77,7 +77,7 @@ func (h *OperatorHandler) Create(c *gin.Context) {
 	}
 
 	if h.auditSvc != nil {
-		h.auditSvc.Log(c.Request.Context(), model.EventAdminAction, model.SeverityInfo, c.GetString("username"), c.ClientIP(), "OPERATOR", req.Username,
+		h.auditSvc.Log(c.Request.Context(), model.EventAdminAction, model.SeverityInfo, getCurrentUser(c), c.ClientIP(), "OPERATOR", req.Username,
 			"创建操作员", map[string]interface{}{"username": req.Username, "role": req.Role}, model.ResultSuccess, "")
 	}
 	c.JSON(http.StatusOK, gin.H{"code": "OK", "data": op})
@@ -94,6 +94,12 @@ func (h *OperatorHandler) Update(c *gin.Context) {
 	var req model.UpdateOperatorRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_PARAMETER", "message": err.Error()})
+		return
+	}
+
+	// MFA功能禁用检查（功能未实现）
+	if req.MFAEnabled != nil && *req.MFAEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "FEATURE_NOT_AVAILABLE", "message": "MFA功能尚未实现，暂不支持启用"})
 		return
 	}
 
@@ -115,7 +121,7 @@ func (h *OperatorHandler) Update(c *gin.Context) {
 	}
 
 	if h.auditSvc != nil {
-		h.auditSvc.Log(c.Request.Context(), model.EventAdminAction, model.SeverityInfo, c.GetString("username"), c.ClientIP(), "OPERATOR", strconv.Itoa(id),
+		h.auditSvc.Log(c.Request.Context(), model.EventAdminAction, model.SeverityInfo, getCurrentUser(c), c.ClientIP(), "OPERATOR", strconv.Itoa(id),
 			"更新操作员", map[string]interface{}{"operator_id": id}, model.ResultSuccess, "")
 	}
 	c.JSON(http.StatusOK, gin.H{"code": "OK"})
@@ -142,7 +148,7 @@ func (h *OperatorHandler) Delete(c *gin.Context) {
 	}
 
 	if h.auditSvc != nil {
-		h.auditSvc.Log(c.Request.Context(), model.EventAdminAction, model.SeverityWarn, c.GetString("username"), c.ClientIP(), "OPERATOR", strconv.Itoa(id),
+		h.auditSvc.Log(c.Request.Context(), model.EventAdminAction, model.SeverityWarn, getCurrentUser(c), c.ClientIP(), "OPERATOR", strconv.Itoa(id),
 			"删除操作员", map[string]interface{}{"operator_id": id}, model.ResultSuccess, "")
 	}
 	c.JSON(http.StatusOK, gin.H{"code": "OK"})
@@ -187,7 +193,7 @@ func (h *OperatorHandler) ChangePassword(c *gin.Context) {
 			return
 		}
 		if h.auditSvc != nil {
-			h.auditSvc.Log(c.Request.Context(), model.EventAdminAction, model.SeverityInfo, c.GetString("username"), c.ClientIP(), "OPERATOR", strconv.Itoa(id),
+			h.auditSvc.Log(c.Request.Context(), model.EventAdminAction, model.SeverityInfo, getCurrentUser(c), c.ClientIP(), "OPERATOR", strconv.Itoa(id),
 				"安全管理员重置密码", map[string]interface{}{"operator_id": id}, model.ResultSuccess, "")
 		}
 		c.JSON(http.StatusOK, gin.H{"code": "OK", "message": "密码已重置"})
@@ -258,7 +264,7 @@ func (h *OperatorHandler) ToggleStatus(c *gin.Context) {
 		status = "启用"
 	}
 	if h.auditSvc != nil {
-		h.auditSvc.Log(c.Request.Context(), model.EventAdminAction, model.SeverityInfo, c.GetString("username"), c.ClientIP(), "OPERATOR", strconv.Itoa(id),
+		h.auditSvc.Log(c.Request.Context(), model.EventAdminAction, model.SeverityInfo, getCurrentUser(c), c.ClientIP(), "OPERATOR", strconv.Itoa(id),
 			"切换操作员状态", map[string]interface{}{"operator_id": id, "is_active": req.IsActive}, model.ResultSuccess, "")
 	}
 	c.JSON(http.StatusOK, gin.H{"code": "OK", "message": "操作员已" + status})

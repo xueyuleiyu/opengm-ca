@@ -114,7 +114,12 @@ func (e *CAEngine) LoadFromDB(ctx context.Context, caRepo CARepository, keyEncry
 			continue
 		}
 		instance.PrivateKey = privKey
-		instance.Signer = privKey.(crypto.Signer)
+		signer, ok := privKey.(crypto.Signer)
+		if !ok {
+			log.Warn().Str("ca", ca.CAName).Str("type", fmt.Sprintf("%T", privKey)).Msg("CA私钥不是合法的签名器，跳过加载")
+			continue
+		}
+		instance.Signer = signer
 
 		if ca.CAType == model.CATypeRoot {
 			e.rootCA = instance

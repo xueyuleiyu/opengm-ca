@@ -196,6 +196,7 @@ type UpdateOperatorRequest struct {
 	Phone       *string       `json:"phone,omitempty" validate:"omitempty,max=20"`
 	Role        *OperatorRole `json:"role,omitempty"`
 	IsActive    *bool         `json:"is_active,omitempty"`
+	MFAEnabled  *bool         `json:"mfa_enabled,omitempty"`
 	Permissions []string      `json:"permissions,omitempty"`
 }
 

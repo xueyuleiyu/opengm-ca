@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/uptrace/bun"
@@ -115,14 +116,15 @@ func (r *KeyExportApprovalRepository) HasApproved(ctx context.Context, requestID
 	return exists, err
 }
 
-// CreateWithCheck 创建审批记录，自动校验同一审批人不能重复审批
+// CreateWithCheck 创建审批记录，利用数据库唯一索引防止重复审批
 func (r *KeyExportApprovalRepository) CreateWithCheck(ctx context.Context, approval *model.KeyExportApprovalRecord) error {
-	exists, err := r.HasApproved(ctx, approval.RequestID, approval.Approver)
+	err := r.Create(ctx, approval)
 	if err != nil {
+		// 捕获唯一约束冲突（openGauss/PostgreSQL 错误码 23505）
+		if strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "duplicate") {
+			return fmt.Errorf("您已对该请求进行过审批，不能重复审批")
+		}
 		return err
 	}
-	if exists {
-		return fmt.Errorf("您已对该请求进行过审批，不能重复审批")
-	}
-	return r.Create(ctx, approval)
+	return nil
 }
