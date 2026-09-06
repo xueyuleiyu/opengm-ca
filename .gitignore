@@ -102,3 +102,10 @@ yarn-error.log
 test_results_*.md
 frontend_backend_alignment_report_*.md
 COMPREHENSIVE_TEST_REPORT.md
+
+# 构建产物（二进制）
+/ca-server
+/ca-server-*
+
+# 编辑器扩展安装包
+*.vsix
