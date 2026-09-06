@@ -3,10 +3,7 @@ package core
 import (
 	"context"
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 
@@ -23,7 +20,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/emmansun/gmsm/sm2"
 	opengmcrypto "github.com/opengm-ca/opengm-ca/internal/crypto"
 	"github.com/opengm-ca/opengm-ca/internal/config"
 	"github.com/opengm-ca/opengm-ca/internal/model"
@@ -379,8 +375,8 @@ func (e *CAEngine) Initialize(ctx context.Context, req *model.CAInitRequest) (*m
 
 // createRootCA 创建根CA
 func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig) (*CAInstance, error) {
-	// 生成密钥对
-	privKey, pubKey, err := generateKeyPair(req.Algorithm, req.KeySize)
+	// 生成密钥对（统一使用 crypto 包的 KeyGenerator）
+	privKey, pubKey, err := opengmcrypto.NewKeyGenerator().GenerateKeyPair(req.Algorithm)
 	if err != nil {
 		return nil, fmt.Errorf("生成根CA密钥失败: %w", err)
 	}
@@ -423,7 +419,7 @@ func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig
 		return nil, fmt.Errorf("解析根CA证书失败: %w", err)
 	}
 
-	certPEM := pemEncode(certBytes, "CERTIFICATE")
+	certPEM := opengmcrypto.PemEncode(certBytes, "CERTIFICATE")
 
 	caIDSerial, err := generateSerialNumber()
 	if err != nil {
@@ -447,8 +443,8 @@ func (e *CAEngine) createRootCA(ctx context.Context, req *model.RootCAInitConfig
 
 // createIntermediateCA 创建中间CA
 func (e *CAEngine) createIntermediateCA(ctx context.Context, parent *CAInstance, req *model.IntermediateCAInitConfig) (*CAInstance, error) {
-	// 生成密钥对
-	privKey, pubKey, err := generateKeyPair(req.Algorithm, 256)
+	// 生成密钥对（统一使用 crypto 包的 KeyGenerator）
+	privKey, pubKey, err := opengmcrypto.NewKeyGenerator().GenerateKeyPair(req.Algorithm)
 	if err != nil {
 		return nil, fmt.Errorf("生成中间CA密钥失败: %w", err)
 	}
@@ -492,7 +488,7 @@ func (e *CAEngine) createIntermediateCA(ctx context.Context, parent *CAInstance,
 		return nil, fmt.Errorf("解析中间CA证书失败: %w", err)
 	}
 
-	certPEM := pemEncode(certBytes, "CERTIFICATE")
+	certPEM := opengmcrypto.PemEncode(certBytes, "CERTIFICATE")
 	caIDSerial, err := generateSerialNumber()
 	if err != nil {
 		return nil, fmt.Errorf("生成CA ID失败: %w", err)
@@ -556,7 +552,7 @@ func (e *CAEngine) IssueCertificate(ctx context.Context, caName string, req *mod
 		return nil, fmt.Errorf("解析证书失败: %w", err)
 	}
 
-	certPEM := pemEncode(certBytes, "CERTIFICATE")
+	certPEM := opengmcrypto.PemEncode(certBytes, "CERTIFICATE")
 	certHash := sha256.Sum256(certBytes)
 
 	pubKeyAlg := model.PubKeySM2
@@ -587,43 +583,6 @@ func (e *CAEngine) IssueCertificate(ctx context.Context, caName string, req *mod
 		Str("ca", caName).Msg("证书签发成功")
 
 	return result, nil
-}
-
-// generateKeyPair 生成密钥对
-func generateKeyPair(algorithm string, keySize int) (interface{}, interface{}, error) {
-	switch algorithm {
-	case "SM2":
-		privKey, err := sm2.GenerateKey(rand.Reader)
-		if err != nil {
-			return nil, nil, err
-		}
-		return privKey, &privKey.PublicKey, nil
-
-	case "RSA2048", "RSA4096":
-		size := 2048
-		if algorithm == "RSA4096" {
-			size = 4096
-		}
-		privKey, err := rsa.GenerateKey(rand.Reader, size)
-		if err != nil {
-			return nil, nil, err
-		}
-		return privKey, &privKey.PublicKey, nil
-
-	case "EC256", "EC384":
-		curve := elliptic.P256()
-		if algorithm == "EC384" {
-			curve = elliptic.P384()
-		}
-		privKey, err := ecdsa.GenerateKey(curve, rand.Reader)
-		if err != nil {
-			return nil, nil, err
-		}
-		return privKey, &privKey.PublicKey, nil
-
-	default:
-		return nil, nil, fmt.Errorf("不支持的算法: %s", algorithm)
-	}
 }
 
 // generateSerialNumber 生成证书序列号
@@ -691,45 +650,14 @@ func buildCertTemplate(req *model.CertificateRequest) (*x509.Certificate, error)
 		NotAfter:     time.Now().AddDate(0, 0, req.ValidityDays),
 	}
 
-	// 应用请求的 KeyUsage 和 ExtKeyUsage 扩展
-	keyUsageMap := map[string]x509.KeyUsage{
-		"digitalSignature": x509.KeyUsageDigitalSignature,
-		"nonRepudiation":   x509.KeyUsageContentCommitment,
-		"keyEncipherment":  x509.KeyUsageKeyEncipherment,
-		"dataEncipherment": x509.KeyUsageDataEncipherment,
-		"keyAgreement":     x509.KeyUsageKeyAgreement,
-		"keyCertSign":      x509.KeyUsageCertSign,
-		"cRLSign":          x509.KeyUsageCRLSign,
+	// 应用请求的 KeyUsage 和 ExtKeyUsage 扩展（统一使用 cert_template.go 的解析函数）
+	if ku, err := ParseKeyUsage(req.Extensions.KeyUsage); err == nil {
+		template.KeyUsage = ku
 	}
-	for _, ku := range req.Extensions.KeyUsage {
-		if v, ok := keyUsageMap[ku]; ok {
-			template.KeyUsage |= v
-		}
-	}
-	extKeyUsageMap := map[string]x509.ExtKeyUsage{
-		"serverAuth":      x509.ExtKeyUsageServerAuth,
-		"clientAuth":      x509.ExtKeyUsageClientAuth,
-		"codeSigning":     x509.ExtKeyUsageCodeSigning,
-		"emailProtection": x509.ExtKeyUsageEmailProtection,
-		"ipsecEndSystem":  x509.ExtKeyUsageIPSECEndSystem,
-		"ipsecTunnel":     x509.ExtKeyUsageIPSECTunnel,
-		"timeStamping":    x509.ExtKeyUsageTimeStamping,
-		"ocspSigning":     x509.ExtKeyUsageOCSPSigning,
-	}
-	for _, eku := range req.Extensions.ExtKeyUsage {
-		if v, ok := extKeyUsageMap[eku]; ok {
-			template.ExtKeyUsage = append(template.ExtKeyUsage, v)
-		}
+	if eku, err := ParseExtKeyUsage(req.Extensions.ExtKeyUsage); err == nil {
+		template.ExtKeyUsage = eku
 	}
 
 	return template, nil
 }
 
-// pemEncode PEM编码
-func pemEncode(data []byte, blockType string) string {
-	block := &pem.Block{
-		Type:  blockType,
-		Bytes: data,
-	}
-	return string(pem.EncodeToMemory(block))
-}

@@ -39,13 +39,13 @@ func (d *DualCertCoordinator) IssueDualCertificates(ctx context.Context, req *mo
 	log.Info().Str("subject", req.Subject.CommonName).Msg("开始签发VPN双证书")
 
 	// 1. 生成签名密钥对
-	signPrivKey, signPubKey, err := generateKeyPair(req.Algorithm, 256)
+	signPrivKey, signPubKey, err := opengmcrypto.NewKeyGenerator().GenerateKeyPair(req.Algorithm)
 	if err != nil {
 		return nil, fmt.Errorf("生成签名密钥对失败: %w", err)
 	}
 
 	// 2. 生成加密密钥对
-	encPrivKey, encPubKey, err := generateKeyPair(req.Algorithm, 256)
+	encPrivKey, encPubKey, err := opengmcrypto.NewKeyGenerator().GenerateKeyPair(req.Algorithm)
 	if err != nil {
 		return nil, fmt.Errorf("生成加密密钥对失败: %w", err)
 	}
