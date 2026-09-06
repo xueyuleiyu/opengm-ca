@@ -255,28 +255,9 @@ func (h *AuthHandler) InitDefaultAdmins(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": "OK", "message": "三员管理员初始化成功", "data": gin.H{"created": created}})
 }
 
-// validatePasswordStrength 校验密码强度
+// validatePasswordStrength 校验登录密码强度（最小8位）
 func validatePasswordStrength(password string) error {
-	if len(password) < 8 {
-		return fmt.Errorf("密码长度至少8位")
-	}
-	var mask uint8
-	for _, ch := range password {
-		switch {
-		case ch >= 'A' && ch <= 'Z':
-			mask |= 1
-		case ch >= 'a' && ch <= 'z':
-			mask |= 2
-		case ch >= '0' && ch <= '9':
-			mask |= 4
-		default:
-			mask |= 8
-		}
-	}
-	if mask != 15 {
-		return fmt.Errorf("密码必须包含大小写字母、数字和特殊字符")
-	}
-	return nil
+	return service.ValidatePasswordPolicy(password, 8)
 }
 
 func mergePermissions(base, extra []string) []string {

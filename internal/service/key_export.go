@@ -332,37 +332,9 @@ func (s *KeyExportService) ExportKey(ctx context.Context, req *model.KeyExportRe
 	return resp, nil
 }
 
-// ValidateExportPasswordStrength 校验导出密码强度
+// ValidateExportPasswordStrength 校验导出密码强度（最小12位）
 func ValidateExportPasswordStrength(password string) error {
-	if len(password) < 12 {
-		return fmt.Errorf("密码长度至少12位")
-	}
-	var hasUpper, hasLower, hasNumber, hasSpecial bool
-	for _, ch := range password {
-		switch {
-		case ch >= 'A' && ch <= 'Z':
-			hasUpper = true
-		case ch >= 'a' && ch <= 'z':
-			hasLower = true
-		case ch >= '0' && ch <= '9':
-			hasNumber = true
-		default:
-			hasSpecial = true
-		}
-	}
-	if !hasUpper {
-		return fmt.Errorf("密码必须包含大写字母")
-	}
-	if !hasLower {
-		return fmt.Errorf("密码必须包含小写字母")
-	}
-	if !hasNumber {
-		return fmt.Errorf("密码必须包含数字")
-	}
-	if !hasSpecial {
-		return fmt.Errorf("密码必须包含特殊字符")
-	}
-	return nil
+	return ValidatePasswordPolicy(password, 12)
 }
 
 // verifyPassword 校验密码（bcrypt）
