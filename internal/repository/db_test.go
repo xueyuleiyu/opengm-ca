@@ -12,6 +12,9 @@ import (
 // TestNewDBConnectsAndCountsCAChains 验证 openGauss sha256 认证下 NewDB 能在
 // 5 秒内建立连接并查询到预期的 ca_chains 数据。口令仅从 DB_PASSWORD 环境变量读取。
 func TestNewDBConnectsAndCountsCAChains(t *testing.T) {
+	if testing.Short() {
+		t.Skip("需要数据库，-short 模式跳过")
+	}
 	password := os.Getenv("DB_PASSWORD")
 	if password == "" {
 		t.Fatal("DB_PASSWORD 环境变量未设置，无法执行真实连接测试")

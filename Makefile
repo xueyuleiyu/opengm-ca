@@ -2,8 +2,7 @@
 
 # 变量定义
 BINARY_NAME=opengm-ca
-CLI_NAME=opengm-ca-cli
-INIT_NAME=opengm-ca-init
+GENCERTS_NAME=gen-certs
 BUILD_DIR=./build
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
@@ -17,6 +16,12 @@ GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 
+# 覆盖率闸门阈值（只允许调高，不允许调低）
+COVERAGE_MIN ?= 23
+COVERAGE_FILE ?= coverage.out
+# staticcheck 二进制路径（未安装时自动 go install）
+STATICCHECK ?= $(shell go env GOPATH)/bin/staticcheck
+
 # 链接参数
 LDFLAGS=-ldflags " \
 	-X main.Version=$(VERSION) \
@@ -25,7 +30,7 @@ LDFLAGS=-ldflags " \
 	-s -w"
 
 # 默认目标
-.PHONY: all build build-server build-cli build-init clean test lint fmt vet docker help
+.PHONY: all build build-server build-gen-certs clean test test-short coverage fmt fmt-check vet staticcheck lint coverage-gate check-db-env verify verify-nodb mod docker docker-push install uninstall init-db init-ca run run-dev generate check release help
 
 all: build
 
@@ -39,7 +44,7 @@ help:
 	@sed -n 's/^##//p' $(MAKEFILE_LIST) | column -t -s ':' | sed -e 's/^/ /'
 
 ## build: 构建所有二进制文件
-build: build-server build-cli build-init
+build: build-server build-gen-certs
 
 ## build-server: 构建CA服务主程序
 build-server:
@@ -47,17 +52,11 @@ build-server:
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/ca-server
 
-## build-cli: 构建CA命令行工具
-build-cli:
-	@echo "Building $(CLI_NAME)..."
+## build-gen-certs: 构建证书生成工具
+build-gen-certs:
+	@echo "Building $(GENCERTS_NAME)..."
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(CLI_NAME) ./cmd/ca-cli
-
-## build-init: 构建CA初始化工具
-build-init:
-	@echo "Building $(INIT_NAME)..."
-	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(INIT_NAME) ./cmd/ca-init
+	CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(GENCERTS_NAME) ./cmd/gen-certs
 
 ## clean: 清理构建产物
 clean:
@@ -66,15 +65,15 @@ clean:
 	@rm -rf $(BUILD_DIR)
 	@rm -rf ./dist
 
-## test: 运行单元测试
+## test: 运行单元测试（禁用缓存，生成覆盖率）
 test:
 	@echo "Running tests..."
-	$(GOTEST) -v -race -coverprofile=coverage.out ./...
+	$(GOTEST) -count=1 -coverprofile=$(COVERAGE_FILE) ./...
 
-## test-short: 运行快速测试
+## test-short: 运行快速测试（-short 跳过数据库测试，生成覆盖率）
 test-short:
 	@echo "Running short tests..."
-	$(GOTEST) -short ./...
+	$(GOTEST) -short -count=1 -coverprofile=$(COVERAGE_FILE) ./...
 
 ## coverage: 生成测试覆盖率报告
 coverage: test
@@ -91,6 +90,56 @@ fmt:
 vet:
 	@echo "Running go vet..."
 	$(GOCMD) vet ./...
+
+## fmt-check: 检查Go代码格式（只读检查，不自动改写）
+fmt-check:
+	@echo "Checking gofmt..."
+	@unformatted=$$(gofmt -l $$(go list -f '{{.Dir}}' ./...)); \
+	if [ -n "$$unformatted" ]; then \
+		echo "gofmt -l 发现未格式化文件:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+	@echo "gofmt check passed"
+
+## staticcheck: 运行staticcheck静态分析（未安装则自动安装）
+staticcheck:
+	@echo "Running staticcheck..."
+	@if [ ! -x "$(STATICCHECK)" ]; then \
+		echo "staticcheck 未安装，正在安装..."; \
+		$(GOCMD) install honnef.co/go/tools/cmd/staticcheck@latest; \
+	fi
+	$(STATICCHECK) ./...
+
+## coverage-gate: 覆盖率闸门（总覆盖率低于 COVERAGE_MIN 即失败）
+coverage-gate:
+	@echo "覆盖率闸门：要求总覆盖率 >= $(COVERAGE_MIN)%"
+	@total=$$($(GOCMD) tool cover -func=$(COVERAGE_FILE) | awk '/^total:/{print $$3}' | tr -d '%'); \
+	if [ -z "$$total" ]; then \
+		echo "错误：无法从 $(COVERAGE_FILE) 读取 total 覆盖率"; \
+		exit 1; \
+	fi; \
+	echo "实测总覆盖率: $$total%"; \
+	if ! awk -v cov="$$total" -v min="$(COVERAGE_MIN)" 'BEGIN { exit !(cov >= min) }'; then \
+		echo "失败：覆盖率 $$total% 低于阈值 $(COVERAGE_MIN)%"; \
+		exit 1; \
+	fi; \
+	echo "通过：覆盖率 $$total% >= 阈值 $(COVERAGE_MIN)%"
+
+## check-db-env: 校验 DB_PASSWORD 已设置（数据库测试前置）
+check-db-env:
+	@if [ -z "$$DB_PASSWORD" ]; then \
+		echo "DB_PASSWORD 未设置，请先 export 或 source .env"; \
+		exit 1; \
+	fi
+
+## verify: 完整验收闸门（含数据库测试，需 DB_PASSWORD）
+verify: check-db-env fmt-check vet staticcheck build test coverage-gate
+	@echo "verify 通过：6 项检查全部通过"
+
+## verify-nodb: 离线验收闸门（-short 跳过数据库测试）
+verify-nodb: fmt-check vet staticcheck build test-short coverage-gate
+	@echo "verify-nodb 通过：6 项检查全部通过"
 
 ## lint: 运行golangci-lint
 lint:
@@ -120,16 +169,14 @@ docker-push: docker
 install: build
 	@echo "Installing to /usr/local/bin..."
 	@cp $(BUILD_DIR)/$(BINARY_NAME) /usr/local/bin/
-	@cp $(BUILD_DIR)/$(CLI_NAME) /usr/local/bin/
-	@cp $(BUILD_DIR)/$(INIT_NAME) /usr/local/bin/
+	@cp $(BUILD_DIR)/$(GENCERTS_NAME) /usr/local/bin/
 	@echo "Installation complete"
 
 ## uninstall: 从系统卸载
 uninstall:
 	@echo "Uninstalling..."
 	@rm -f /usr/local/bin/$(BINARY_NAME)
-	@rm -f /usr/local/bin/$(CLI_NAME)
-	@rm -f /usr/local/bin/$(INIT_NAME)
+	@rm -f /usr/local/bin/$(GENCERTS_NAME)
 
 ## init-db: 初始化数据库
 init-db: build-server
@@ -169,10 +216,10 @@ release: clean
 	@mkdir -p dist
 	# Linux amd64
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-linux-amd64 ./cmd/ca-server
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o dist/$(CLI_NAME)-linux-amd64 ./cmd/ca-cli
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o dist/$(INIT_NAME)-linux-amd64 ./cmd/ca-init
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o dist/$(GENCERTS_NAME)-linux-amd64 ./cmd/gen-certs
 	# Linux arm64
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-linux-arm64 ./cmd/ca-server
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -o dist/$(GENCERTS_NAME)-linux-arm64 ./cmd/gen-certs
 	# 打包
 	@cp -r configs dist/
 	@cp -r scripts dist/
