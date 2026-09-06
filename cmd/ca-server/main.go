@@ -327,6 +327,8 @@ func runDBMigration(ctx context.Context, db *repository.DB) error {
 		(*model.Operator)(nil),
 		(*model.APIKey)(nil),
 		(*model.SystemConfig)(nil),
+		(*model.KeyExportRequestRecord)(nil),
+		(*model.KeyExportApprovalRecord)(nil),
 	}
 
 	for _, m := range models {

@@ -10,8 +10,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/asn1"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -117,30 +115,13 @@ func (h *SoftHSM) GenerateKeyPair(algorithm string, keySize int, keyType string)
 		return "", nil, fmt.Errorf("不支持的算法: %s", algorithm)
 	}
 
-	// 序列化私钥为PKCS#8（支持SM2）
-	var privBytes []byte
-	switch k := privKey.(type) {
-	case *sm2.PrivateKey:
-		oidSM2 := asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 301}
-		rawBytes, _ := asn1.Marshal(k.D.Bytes())
-		info := struct {
-			Version             int
-			PrivateKeyAlgorithm pkix.AlgorithmIdentifier
-			PrivateKey          []byte
-		}{
-			Version:             0,
-			PrivateKeyAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidSM2},
-			PrivateKey:          rawBytes,
-		}
-		privBytes, err = asn1.Marshal(info)
-		if err != nil {
-			return "", nil, fmt.Errorf("SM2 PKCS#8编码失败: %w", err)
-		}
-	default:
+	// 序列化私钥为PKCS#8（统一使用smx509支持SM2国密算法）
+	privBytes, err := smx509.MarshalPKCS8PrivateKey(privKey)
+	if err != nil {
 		privBytes, err = x509.MarshalPKCS8PrivateKey(privKey)
-		if err != nil {
-			return "", nil, fmt.Errorf("序列化私钥失败: %w", err)
-		}
+	}
+	if err != nil {
+		return "", nil, fmt.Errorf("序列化私钥失败: %w", err)
 	}
 
 	// 加密存储（使用独立盐值）

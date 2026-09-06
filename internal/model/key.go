@@ -65,6 +65,7 @@ type CertKey struct {
 
 	// 生命周期
 	CreatedAt      time.Time  `bun:"created_at,default:current_timestamp" json:"created_at"`
+	UpdatedAt      time.Time  `bun:"updated_at,default:current_timestamp" json:"updated_at"`
 	ExpiresAt      *time.Time `bun:"expires_at" json:"expires_at,omitempty"`
 	CreatedBy      string     `bun:"created_by,notnull" json:"created_by"`
 	DeletedAt      *time.Time `bun:"deleted_at" json:"deleted_at,omitempty"`
