@@ -14,7 +14,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const defaultCRLNextUpdateHours = 48
+// DefaultCRLNextUpdateHours CRL默认下次更新时间(小时)
+const DefaultCRLNextUpdateHours = 48
 
 // ManagementService 证书管理服务
 type ManagementService struct {
@@ -29,7 +30,7 @@ type ManagementService struct {
 // NewManagementService 创建证书管理服务
 func NewManagementService(certRepo *repository.CertificateRepository, caRepo *repository.CAChainRepository, caEngine *core.CAEngine, auditSvc *AuditService, nextUpdateHours int, includeExpiredEntries bool) *ManagementService {
 	if nextUpdateHours <= 0 {
-		nextUpdateHours = defaultCRLNextUpdateHours
+		nextUpdateHours = DefaultCRLNextUpdateHours
 	}
 	return &ManagementService{
 		certRepo:              certRepo,

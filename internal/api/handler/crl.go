@@ -13,8 +13,6 @@ import (
 	"github.com/opengm-ca/opengm-ca/internal/service"
 )
 
-const defaultCRLNextUpdateHours = 48
-
 // CRLHandler CRL管理Handler
 type CRLHandler struct {
 	caEngine        *core.CAEngine
@@ -27,7 +25,7 @@ type CRLHandler struct {
 // NewCRLHandler 创建CRL Handler
 func NewCRLHandler(caEngine *core.CAEngine, certRepo *repository.CertificateRepository, caRepo *repository.CAChainRepository, auditSvc *service.AuditService, nextUpdateHours int) *CRLHandler {
 	if nextUpdateHours <= 0 {
-		nextUpdateHours = defaultCRLNextUpdateHours
+		nextUpdateHours = service.DefaultCRLNextUpdateHours
 	}
 	return &CRLHandler{caEngine: caEngine, certRepo: certRepo, caRepo: caRepo, auditSvc: auditSvc, nextUpdateHours: nextUpdateHours}
 }
