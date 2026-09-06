@@ -175,24 +175,24 @@ func ResolveMasterKey(source string) ([]byte, error) {
 	} else if data, err := os.ReadFile(source); err == nil {
 		// 从文件获取 - 增加文件权限校验
 		sourceType = "file"
-		
+
 		// 校验文件权限，确保只有所有者可读写
 		fileInfo, statErr := os.Stat(source)
 		if statErr != nil {
 			return nil, fmt.Errorf("无法获取主密钥文件信息: %w", statErr)
 		}
-		
+
 		// 检查文件权限模式（应该 <= 0600，即仅所有者可读写）
 		perm := fileInfo.Mode().Perm()
 		if perm > 0600 {
 			return nil, fmt.Errorf("主密钥文件权限过于宽松: %o，应设置为0600或更严格", perm)
 		}
-		
+
 		// 检查文件是否为符号链接（防止符号链接攻击）
 		if fileInfo.Mode()&os.ModeSymlink != 0 {
 			return nil, fmt.Errorf("主密钥文件不能是符号链接")
 		}
-		
+
 		raw = string(data)
 	} else {
 		return nil, fmt.Errorf("无法从 %s 加载主密钥: 环境变量未设置且文件不存在", source)

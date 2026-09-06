@@ -169,19 +169,19 @@ type OCSPConfig struct {
 
 // AuditConfig 审计配置
 type AuditConfig struct {
-	RetentionDays    int  `mapstructure:"retention_days"`
-	AsyncWrite       bool `mapstructure:"async_write"`
-	HashChainEnabled bool `mapstructure:"hash_chain_enabled"`
-	QueueCapacity    int  `mapstructure:"queue_capacity"`
+	RetentionDays    int    `mapstructure:"retention_days"`
+	AsyncWrite       bool   `mapstructure:"async_write"`
+	HashChainEnabled bool   `mapstructure:"hash_chain_enabled"`
+	QueueCapacity    int    `mapstructure:"queue_capacity"`
 	BackupPath       string `mapstructure:"backup_path"`
 }
 
 // AuthConfig 认证配置
 type AuthConfig struct {
-	JWT           JWTConfig    `mapstructure:"jwt"`
-	APIKey        APIKeyConfig `mapstructure:"api_key"`
-	MaxLoginFail  int          `mapstructure:"max_login_fail"`
-	LockDuration  time.Duration `mapstructure:"lock_duration"`
+	JWT          JWTConfig     `mapstructure:"jwt"`
+	APIKey       APIKeyConfig  `mapstructure:"api_key"`
+	MaxLoginFail int           `mapstructure:"max_login_fail"`
+	LockDuration time.Duration `mapstructure:"lock_duration"`
 }
 
 // JWTConfig JWT配置

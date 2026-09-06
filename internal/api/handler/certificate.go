@@ -33,7 +33,7 @@ func (h *CertificateHandler) Enroll(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "SERVICE_UNAVAILABLE", "message": "证书申请服务未初始化，请检查主密钥配置"})
 		return
 	}
-	
+
 	var req model.CertificateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_PARAMETER", "message": err.Error()})
@@ -79,19 +79,19 @@ func validateCertEnrollRequest(req *model.CertificateRequest) error {
 		return fmt.Errorf("CommonName长度超过限制: %d字符 (最大%d字符)", len(req.Subject.CommonName), middleware.MaxSubjectFieldLength)
 	}
 	if len(req.Subject.Organization) > middleware.MaxSubjectFieldLength {
-		return fmt.Errorf("Organization长度超过限制: %d字符", len(req.Subject.Organization))
+		return fmt.Errorf("organization长度超过限制: %d字符", len(req.Subject.Organization))
 	}
 	if len(req.Subject.OrganizationalUnit) > middleware.MaxSubjectFieldLength {
 		return fmt.Errorf("OrganizationalUnit长度超过限制: %d字符", len(req.Subject.OrganizationalUnit))
 	}
 	if len(req.Subject.Country) > 2 {
-		return fmt.Errorf("Country长度超过限制: %d字符 (应为2字符)", len(req.Subject.Country))
+		return fmt.Errorf("country长度超过限制: %d字符 (应为2字符)", len(req.Subject.Country))
 	}
 	if len(req.Subject.State) > middleware.MaxSubjectFieldLength {
-		return fmt.Errorf("State长度超过限制: %d字符", len(req.Subject.State))
+		return fmt.Errorf("state长度超过限制: %d字符", len(req.Subject.State))
 	}
 	if len(req.Subject.Locality) > middleware.MaxSubjectFieldLength {
-		return fmt.Errorf("Locality长度超过限制: %d字符", len(req.Subject.Locality))
+		return fmt.Errorf("locality长度超过限制: %d字符", len(req.Subject.Locality))
 	}
 
 	// 校验SAN数量

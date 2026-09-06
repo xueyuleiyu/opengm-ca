@@ -106,10 +106,6 @@ func AddCRLDistributionPoints(template *x509.Certificate, crlDP *CRLDistribution
 		DistributionPoint asn1.RawValue `asn1:"tag:0,optional,explicit"`
 	}
 
-	type DistributionPointName struct {
-		FullName []asn1.RawValue `asn1:"tag:0,optional,explicit"`
-	}
-
 	// 创建URI分发点
 	uriValue := fmt.Sprintf("URI:%s", crlDP.URI)
 	uriBytes, err := asn1.Marshal(uriValue)
@@ -225,9 +221,9 @@ func EnhanceCertificateWithGMExtensions(template *x509.Certificate, certType str
 	// 添加国密扩展
 	gmExt := &GMExtension{
 		EnableIdentityExtension: true,
-		IdentityValue:          identityValue,
-		EnableGMExtension:      true,
-		GMExtensionValue:       "GM_CERTIFICATE",
+		IdentityValue:           identityValue,
+		EnableGMExtension:       true,
+		GMExtensionValue:        "GM_CERTIFICATE",
 	}
 	if err := AddGMExtensions(template, gmExt); err != nil {
 		return err

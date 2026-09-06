@@ -15,15 +15,6 @@ func getCurrentUser(c *gin.Context) string {
 	return "anonymous"
 }
 
-// getCurrentUserID 从 gin 上下文中提取当前用户ID
-func getCurrentUserID(c *gin.Context) (int, error) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		return 0, nil
-	}
-	return strconv.Atoi(userID.(string))
-}
-
 // parsePaginationParams 统一解析分页参数，返回 page, pageSize, offset
 func parsePaginationParams(c *gin.Context, defaultPageSize int) (page, pageSize, offset int) {
 	page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))

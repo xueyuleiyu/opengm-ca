@@ -22,13 +22,13 @@ import (
 
 // KeyExportService 私钥导出服务
 type KeyExportService struct {
-	cfg              *config.Config
-	keyStore         *opengmcrypto.KeyStore
-	keyRepo          *repository.KeyRepository
-	exportReqRepo    *repository.KeyExportRequestRepository
+	cfg                *config.Config
+	keyStore           *opengmcrypto.KeyStore
+	keyRepo            *repository.KeyRepository
+	exportReqRepo      *repository.KeyExportRequestRepository
 	exportApprovalRepo *repository.KeyExportApprovalRepository
-	operatorRepo     *repository.OperatorRepository
-	auditSvc         *AuditService
+	operatorRepo       *repository.OperatorRepository
+	auditSvc           *AuditService
 }
 
 // NewKeyExportService 创建私钥导出服务

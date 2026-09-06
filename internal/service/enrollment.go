@@ -276,7 +276,7 @@ func (s *EnrollmentService) validateRequest(req *model.CertificateRequest) error
 	if s.cfg == nil {
 		return fmt.Errorf("服务配置未初始化")
 	}
-	
+
 	if req.ValidityDays <= 0 || req.ValidityDays > s.cfg.CertPolicy.MaxValidityDays {
 		return fmt.Errorf("有效期必须在1-%d天之间", s.cfg.CertPolicy.MaxValidityDays)
 	}

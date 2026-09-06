@@ -2,9 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,10 +19,10 @@ type AuditService struct {
 	logQueue     chan *model.AuditLog
 	wg           sync.WaitGroup
 	closeOnce    sync.Once
-	closed       atomic.Bool // 防止向已关闭channel发送
-	lastHash     string      // 内存中维护最后哈希，替代数据库查询
-	hashMu       sync.Mutex  // 保护lastHash
-	backupFile   string      // 队列满时的备份文件路径
+	closed       atomic.Bool  // 防止向已关闭channel发送
+	lastHash     string       // 内存中维护最后哈希，替代数据库查询
+	hashMu       sync.Mutex   // 保护lastHash
+	backupFile   string       // 队列满时的备份文件路径
 	droppedCount atomic.Int64 // 丢弃的审计日志计数
 }
 
@@ -35,7 +32,7 @@ func NewAuditService(repo *repository.AuditRepository, enabled, hashChain bool) 
 		repo:       repo,
 		enabled:    enabled,
 		hashChain:  hashChain,
-		logQueue:   make(chan *model.AuditLog, 5000), // 增加队列容量到5000
+		logQueue:   make(chan *model.AuditLog, 5000),      // 增加队列容量到5000
 		backupFile: "/var/log/opengm-ca/audit_backup.log", // 备份文件路径
 	}
 	if hashChain {
@@ -179,19 +176,4 @@ func (s *AuditService) VerifyChain(ctx context.Context, startID, endID int64) (*
 // BackupFilePath 返回当前备份文件路径
 func (s *AuditService) BackupFilePath() string {
 	return s.backupFile
-}
-
-// ensureBackupDir 确保备份目录存在且可写（在初始化时调用）
-func ensureBackupDir(path string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return fmt.Errorf("创建审计备份目录失败: %w", err)
-	}
-	// 测试可写性
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
-	if err != nil {
-		return fmt.Errorf("审计备份文件不可写: %w", err)
-	}
-	f.Close()
-	return nil
 }

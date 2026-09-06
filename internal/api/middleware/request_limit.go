@@ -20,16 +20,16 @@ func RequestBodyLimitMiddleware(maxBytes int64) gin.HandlerFunc {
 const (
 	// MaxRequestBodySize 默认最大请求体大小 (10MB)
 	MaxRequestBodySize = 10 * 1024 * 1024
-	
+
 	// MaxCertEnrollBodySize 证书申请最大请求体大小 (1MB)
 	MaxCertEnrollBodySize = 1 * 1024 * 1024
-	
+
 	// MaxCSRSize CSR PEM最大大小 (100KB)
 	MaxCSRSize = 100 * 1024
-	
+
 	// MaxSubjectFieldLength Subject字段最大长度
 	MaxSubjectFieldLength = 256
-	
+
 	// MaxSANCount SAN最大数量
 	MaxSANCount = 100
 )

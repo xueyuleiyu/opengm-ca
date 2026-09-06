@@ -20,8 +20,8 @@ import (
 	"path/filepath"
 	"time"
 
-	opengmcrypto "github.com/opengm-ca/opengm-ca/internal/crypto"
 	"github.com/opengm-ca/opengm-ca/internal/config"
+	opengmcrypto "github.com/opengm-ca/opengm-ca/internal/crypto"
 	"github.com/opengm-ca/opengm-ca/internal/model"
 	"github.com/rs/zerolog/log"
 )
@@ -615,7 +615,7 @@ func buildCertTemplate(req *model.CertificateRequest) (*x509.Certificate, error)
 	if err != nil {
 		return nil, fmt.Errorf("生成证书序列号失败: %w", err)
 	}
-	
+
 	// 构建完整的主题信息
 	subject := pkix.Name{
 		CommonName:         req.Subject.CommonName,
@@ -625,7 +625,7 @@ func buildCertTemplate(req *model.CertificateRequest) (*x509.Certificate, error)
 		Province:           []string{}, // State/Province
 		Locality:           []string{}, // City/Locality
 	}
-	
+
 	// 添加可选字段
 	if req.Subject.Organization != "" {
 		subject.Organization = []string{req.Subject.Organization}
@@ -642,7 +642,7 @@ func buildCertTemplate(req *model.CertificateRequest) (*x509.Certificate, error)
 	if req.Subject.Locality != "" {
 		subject.Locality = []string{req.Subject.Locality}
 	}
-	
+
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      subject,
@@ -660,4 +660,3 @@ func buildCertTemplate(req *model.CertificateRequest) (*x509.Certificate, error)
 
 	return template, nil
 }
-

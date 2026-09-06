@@ -132,11 +132,11 @@ type KeyExportResponse struct {
 type KeyExportRequestStatus string
 
 const (
-	ExportRequestPending   KeyExportRequestStatus = "PENDING"
-	ExportRequestApproved  KeyExportRequestStatus = "APPROVED"
-	ExportRequestRejected  KeyExportRequestStatus = "REJECTED"
-	ExportRequestExecuted  KeyExportRequestStatus = "EXECUTED"
-	ExportRequestExpired   KeyExportRequestStatus = "EXPIRED"
+	ExportRequestPending  KeyExportRequestStatus = "PENDING"
+	ExportRequestApproved KeyExportRequestStatus = "APPROVED"
+	ExportRequestRejected KeyExportRequestStatus = "REJECTED"
+	ExportRequestExecuted KeyExportRequestStatus = "EXECUTED"
+	ExportRequestExpired  KeyExportRequestStatus = "EXPIRED"
 )
 
 // KeyExportRequestRecord 私钥导出审批请求（数据库模型）
