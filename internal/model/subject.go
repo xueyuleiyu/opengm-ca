@@ -40,11 +40,6 @@ type Subject struct {
 	Keys         []CertKey     `bun:"rel:has-many,join:id=subject_id" json:"keys,omitempty"`
 }
 
-// TableName 返回表名
-func (s *Subject) TableName() string {
-	return "subjects"
-}
-
 // GetIdentityKey 获取主体唯一标识键
 func (s *Subject) GetIdentityKey() string {
 	switch s.SubjectType {

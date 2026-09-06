@@ -81,11 +81,6 @@ type AuditLog struct {
 	TSSignature []byte `bun:"ts_signature" json:"ts_signature,omitempty"`
 }
 
-// TableName 返回表名
-func (a *AuditLog) TableName() string {
-	return "audit_log"
-}
-
 func (a *AuditLog) toMap() map[string]interface{} {
 	m := map[string]interface{}{
 		"event_time":  a.EventTime.Format(time.RFC3339Nano),

@@ -27,11 +27,6 @@ type APIKey struct {
 	CreatedBy int       `bun:"created_by,notnull" json:"created_by"`
 }
 
-// TableName 返回表名
-func (a *APIKey) TableName() string {
-	return "api_keys"
-}
-
 // IsValid 检查API Key是否有效
 func (a *APIKey) IsValid(clientIP string) bool {
 	if !a.IsActive || a.RevokedAt != nil {
@@ -75,9 +70,4 @@ type SystemConfig struct {
 	IsEncrypted bool      `bun:"is_encrypted,default:false" json:"is_encrypted"`
 	UpdatedAt   time.Time `bun:"updated_at,default:current_timestamp" json:"updated_at"`
 	UpdatedBy   *int      `bun:"updated_by" json:"updated_by,omitempty"`
-}
-
-// TableName 返回表名
-func (s *SystemConfig) TableName() string {
-	return "system_config"
 }

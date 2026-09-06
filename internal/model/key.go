@@ -76,11 +76,6 @@ type CertKey struct {
 	Certificate *Certificate `bun:"rel:belongs-to,join:cert_id=id" json:"certificate,omitempty"`
 }
 
-// TableName 返回表名
-func (k *CertKey) TableName() string {
-	return "cert_keys"
-}
-
 // CanExport 检查是否允许导出
 func (k *CertKey) CanExport() bool {
 	if !k.Exportable {
@@ -158,11 +153,6 @@ type KeyExportRequestRecord struct {
 	ExpiresAt      *time.Time             `bun:"expires_at" json:"expires_at,omitempty"`
 }
 
-// TableName 返回表名
-func (k *KeyExportRequestRecord) TableName() string {
-	return "key_export_requests"
-}
-
 // KeyExportApprovalRecord 私钥导出审批记录
 type KeyExportApprovalRecord struct {
 	ID         int64      `bun:"id,pk,autoincrement" json:"id"`
@@ -171,9 +161,4 @@ type KeyExportApprovalRecord struct {
 	ApprovedAt *time.Time `bun:"approved_at,default:current_timestamp" json:"approved_at,omitempty"`
 	Comment    string     `bun:"comment" json:"comment,omitempty"`
 	Approved   bool       `bun:"approved,notnull,default:true" json:"approved"`
-}
-
-// TableName 返回表名
-func (k *KeyExportApprovalRecord) TableName() string {
-	return "key_export_approvals"
 }

@@ -83,11 +83,6 @@ type Certificate struct {
 	DualCertPair *Certificate `bun:"rel:belongs-to,join:dual_cert_pair_id=id" json:"dual_cert_pair,omitempty"`
 }
 
-// TableName 返回表名
-func (c *Certificate) TableName() string {
-	return "certificates"
-}
-
 // IsExpired 检查证书是否过期
 func (c *Certificate) IsExpired() bool {
 	return time.Now().After(c.ValidTo)

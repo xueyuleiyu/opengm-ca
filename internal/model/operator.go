@@ -47,11 +47,6 @@ type Operator struct {
 	CreatedBy      *int         `bun:"created_by" json:"created_by,omitempty"`
 }
 
-// TableName 返回表名
-func (o *Operator) TableName() string {
-	return "operators"
-}
-
 // IsLocked 检查账户是否被锁定
 func (o *Operator) IsLocked() bool {
 	if o.LockedUntil == nil {

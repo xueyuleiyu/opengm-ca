@@ -40,11 +40,6 @@ type CAChain struct {
 	Certificates []Certificate `bun:"rel:has-many,join:id=ca_id" json:"certificates,omitempty"`
 }
 
-// TableName 返回表名
-func (c *CAChain) TableName() string {
-	return "ca_chain"
-}
-
 // IsRoot 是否为根CA
 func (c *CAChain) IsRoot() bool {
 	return c.CAType == CATypeRoot
