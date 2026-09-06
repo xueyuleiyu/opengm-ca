@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -94,28 +95,28 @@ func (e *CAEngine) LoadFromDB(ctx context.Context, caRepo CARepository, keyEncry
 		keyPath := filepath.Join(keyDir, ca.CAName+".key")
 		keyData, err := os.ReadFile(keyPath)
 		if err != nil {
-			log.Warn().Str("ca", ca.CAName).Str("path", keyPath).Msg("CA私钥文件不存在，跳过加载")
-			continue
+			return fmt.Errorf("CA %s 私钥文件读取失败(%s): %w", ca.CAName, keyPath, err)
 		}
 
 		privKeyPEM, err := e.decryptKeyFile(keyData, keyEncryptor)
 		if err != nil {
-			log.Warn().Str("ca", ca.CAName).Err(err).Msg("CA私钥解密失败，跳过加载")
-			continue
+			return fmt.Errorf("CA %s 私钥解密失败: %w", ca.CAName, err)
 		}
 
 		privKey, err := parsePrivateKeyPEM(privKeyPEM, ca.Algorithm)
 		if err != nil {
-			log.Warn().Str("ca", ca.CAName).Err(err).Msg("CA私钥解析失败，跳过加载")
-			continue
+			return fmt.Errorf("CA %s 私钥解析失败: %w", ca.CAName, err)
 		}
 		instance.PrivateKey = privKey
 		signer, ok := privKey.(crypto.Signer)
 		if !ok {
-			log.Warn().Str("ca", ca.CAName).Str("type", fmt.Sprintf("%T", privKey)).Msg("CA私钥不是合法的签名器，跳过加载")
-			continue
+			return fmt.Errorf("CA %s 私钥不是合法的签名器(类型 %T)", ca.CAName, privKey)
 		}
 		instance.Signer = signer
+
+		if err := verifyCertKeyPair(instance.Cert, signer); err != nil {
+			return fmt.Errorf("CA %s 证书与私钥不配对: %w", ca.CAName, err)
+		}
 
 		if ca.CAType == model.CATypeRoot {
 			e.rootCA = instance
@@ -126,6 +127,29 @@ func (e *CAEngine) LoadFromDB(ctx context.Context, caRepo CARepository, keyEncry
 
 	log.Info().Int("ca_count", len(cas)).Int("sub_cas", len(e.subCAs)).Msg("CA链从数据库加载完成")
 	return nil
+}
+
+// verifyCertKeyPair 校验证书公钥与私钥公钥是否配对
+func verifyCertKeyPair(cert *smx509.Certificate, signer crypto.Signer) error {
+	certPubDER, err := smx509.MarshalPKIXPublicKey(cert.PublicKey)
+	if err != nil {
+		return fmt.Errorf("序列化证书公钥失败: %w", err)
+	}
+	keyPubDER, err := smx509.MarshalPKIXPublicKey(signer.Public())
+	if err != nil {
+		return fmt.Errorf("序列化私钥公钥失败: %w", err)
+	}
+	if bytes.Equal(certPubDER, keyPubDER) {
+		return nil
+	}
+	return fmt.Errorf("证书公钥指纹 %s 与私钥公钥指纹 %s 不一致，需重新初始化 CA 或恢复正确私钥",
+		pubKeyFingerprint(certPubDER), pubKeyFingerprint(keyPubDER))
+}
+
+// pubKeyFingerprint 计算公钥DER的SHA256指纹前16个hex字符
+func pubKeyFingerprint(pubDER []byte) string {
+	sum := sha256.Sum256(pubDER)
+	return hex.EncodeToString(sum[:8])
 }
 
 // decryptKeyFile 解密私钥文件（禁止明文回退）

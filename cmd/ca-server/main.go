@@ -154,7 +154,7 @@ func startServer(cfg *config.Config, db *repository.DB) error {
 	caEngine := core.NewCAEngine(&cfg.CA)
 	keyEncryptor := &keyEncryptorAdapter{ks: keyStore}
 	if err := caEngine.LoadFromDB(context.Background(), caRepo, keyEncryptor, "./data/ca_keys"); err != nil {
-		log.Warn().Err(err).Msg("CA引擎从数据库加载失败，证书签发功能可能不可用")
+		log.Fatal().Err(err).Msg("CA引擎从数据库加载失败，证书签发功能不可用")
 	}
 	mgmtSvc := service.NewManagementService(certRepo, caRepo, caEngine, auditSvc, cfg.CRL.NextUpdateHours, cfg.CRL.IncludeExpiredEntries)
 	// EnrollmentService必须初始化，即使keyStore为nil

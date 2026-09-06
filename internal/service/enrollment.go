@@ -187,7 +187,7 @@ func (s *EnrollmentService) EnrollCertificate(ctx context.Context, req *model.Ce
 
 	certBytes, err := s.signCertificate(template, pubKey, ca)
 	if err != nil {
-		return nil, fmt.Errorf("签名证书失败: %w", err)
+		return nil, err
 	}
 
 	// 6. 解析并保存证书 (使用smx509支持SM2)
