@@ -1,11 +1,16 @@
 #!/bin/bash
 # openGM-CA 前后端功能测试脚本
 # 测试日期: 2026-05-18
-# 账号密码: sys_admin/sec_admin = WOai@8680186, audit_admin = AuditAdmin@2026
+# 账号密码从环境变量读取：CA_ADMIN_PASSWORD（sys_admin/sec_admin）、CA_AUDIT_PASSWORD（audit_admin）
+# 用法: CA_ADMIN_PASSWORD=xxx CA_AUDIT_PASSWORD=yyy ./scripts/functional_test.sh
 
 # set -e
 
 BASE_URL="https://localhost:8443"
+# 凭证从环境变量读取，禁止明文写入脚本
+: "${CA_ADMIN_PASSWORD:?需设置环境变量 CA_ADMIN_PASSWORD（sys_admin/sec_admin 口令）}"
+: "${CA_AUDIT_PASSWORD:?需设置环境变量 CA_AUDIT_PASSWORD（audit_admin 口令）}"
+NEW_PASSWORD_TMP="NewPass@12345678!"
 TEST_RESULTS="/root/opengm-ca/test_results_$(date +%Y%m%d_%H%M%S).md"
 PASS=0
 FAIL=0
@@ -155,7 +160,7 @@ test_auth_module() {
     echo -e "\n## 二、认证模块测试" >> "$TEST_RESULTS"
     
     # 2.1 sys_admin登录
-    response=$(curl -sk -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" -d '{"username":"sys_admin","password":"WOai@8680186"}')
+    response=$(curl -sk -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" -d '{"username":"sys_admin","password":"${CA_ADMIN_PASSWORD}"}')
     if echo "$response" | grep -q '"code":"OK"'; then
         SYS_TOKEN=$(echo "$response" | grep -oP '"access_token":"\K[^"]+')
         log_pass "sys_admin 登录成功"
@@ -168,7 +173,7 @@ test_auth_module() {
     fi
     
     # 2.2 sec_admin登录
-    response=$(curl -sk -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" -d '{"username":"sec_admin","password":"WOai@8680186"}')
+    response=$(curl -sk -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" -d '{"username":"sec_admin","password":"${CA_ADMIN_PASSWORD}"}')
     if echo "$response" | grep -q '"code":"OK"'; then
         SEC_TOKEN=$(echo "$response" | grep -oP '"access_token":"\K[^"]+')
         log_pass "sec_admin 登录成功"
@@ -181,7 +186,7 @@ test_auth_module() {
     fi
     
     # 2.3 audit_admin登录
-    response=$(curl -sk -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" -d '{"username":"audit_admin","password":"AuditAdmin@2026"}')
+    response=$(curl -sk -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" -d '{"username":"audit_admin","password":"${CA_AUDIT_PASSWORD}"}')
     if echo "$response" | grep -q '"code":"OK"'; then
         AUDIT_TOKEN=$(echo "$response" | grep -oP '"access_token":"\K[^"]+')
         log_pass "audit_admin 登录成功"
@@ -206,7 +211,7 @@ test_auth_module() {
     fi
     
     # 2.5 不存在的用户登录
-    response=$(curl -sk -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" -d '{"username":"notexist","password":"WOai@8680186"}')
+    response=$(curl -sk -X POST "${BASE_URL}/api/v1/auth/login" -H "Content-Type: application/json" -d '{"username":"notexist","password":"${CA_ADMIN_PASSWORD}"}')
     if echo "$response" | grep -q '"code":"UNAUTHORIZED"'; then
         log_pass "不存在用户登录被拒绝"
         ((PASS++))
@@ -378,18 +383,18 @@ test_system_module() {
     fi
     
     # 3.8 密码修改（sys_admin修改自己密码后再改回）
-    response=$(curl -sk -X POST "${BASE_URL}/api/v1/operators/4/password" -H "Authorization: Bearer ${SYS_TOKEN}" -H "Content-Type: application/json" -d '{
-        "old_password":"WOai@8680186",
-        "new_password":"NewPass@12345678!"
+    response=$(curl -sk -X POST "${BASE_URL}/api/v1/operators/2/password" -H "Authorization: Bearer ${SYS_TOKEN}" -H "Content-Type: application/json" -d '{
+        "old_password":"${CA_ADMIN_PASSWORD}",
+        "new_password":"${NEW_PASSWORD_TMP}"
     }')
     if echo "$response" | grep -q '"code":"OK"'; then
         log_pass "sys_admin 修改自己密码"
         ((PASS++))
         echo "- ✅ POST /operators/:id/password - 修改密码成功" >> "$TEST_RESULTS"
         # 改回原密码
-        response=$(curl -sk -X POST "${BASE_URL}/api/v1/operators/4/password" -H "Authorization: Bearer ${SYS_TOKEN}" -H "Content-Type: application/json" -d '{
-            "old_password":"NewPass@12345678!",
-            "new_password":"WOai@8680186"
+        response=$(curl -sk -X POST "${BASE_URL}/api/v1/operators/2/password" -H "Authorization: Bearer ${SYS_TOKEN}" -H "Content-Type: application/json" -d '{
+            "old_password":"${NEW_PASSWORD_TMP}",
+            "new_password":"${CA_ADMIN_PASSWORD}"
         }')
         if echo "$response" | grep -q '"code":"OK"'; then
             log_pass "sys_admin 恢复密码"
