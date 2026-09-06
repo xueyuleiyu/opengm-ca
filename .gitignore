@@ -73,8 +73,9 @@ litellm_config.yaml
 *.p12
 *.pfx
 
-# HSM data
-hsm/
+# HSM data（仅根目录运行时数据，勿匹配 internal/hsm 源码目录）
+/hsm/
+/data/hsm/
 
 # Backup files
 *.bak
@@ -109,3 +110,7 @@ COMPREHENSIVE_TEST_REPORT.md
 
 # 编辑器扩展安装包
 *.vsix
+
+# HSM/数据目录备份（含密钥材料，禁止入库）
+/data.bak.*/
+/data/
