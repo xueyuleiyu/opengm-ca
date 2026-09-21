@@ -115,3 +115,7 @@ COMPREHENSIVE_TEST_REPORT.md
 # HSM/数据目录备份（含密钥材料，禁止入库）
 /data.bak.*/
 /data/
+
+# Claude Code / Codex CLI 本地状态 (settings + sqlite 等)
+.claude/
+.codex/
