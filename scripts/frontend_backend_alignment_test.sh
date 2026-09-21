@@ -3,7 +3,7 @@
 set +e
 
 BASE_URL="https://localhost:8443"
-TEST_REPORT="/root/opengm-ca/frontend_backend_alignment_report_$(date +%Y%m%d_%H%M%S).md"
+TEST_REPORT="/home/omm/opengm-ca/frontend_backend_alignment_report_$(date +%Y%m%d_%H%M%S).md"
 PASS=0
 FAIL=0
 WARN=0

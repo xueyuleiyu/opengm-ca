@@ -3,7 +3,7 @@ set -e
 # export SSHPASS='你的SSH密码'  # 请设置环境变量
 REMOTE='${REMOTE_USER}@${REMOTE_HOST}'  # 请设置环境变量
 LOCAL_DIR='/mnt/c/Users/sunxu/ca-system-design/opengm-ca'
-REPO_DIR='/root/opengm-ca'
+REPO_DIR='/home/omm/opengm-ca'
 
 echo '=== Sync code via scp ==='
 sshpass -e ssh -o StrictHostKeyChecking=no "$REMOTE" "rm -rf $REPO_DIR; mkdir -p $REPO_DIR"

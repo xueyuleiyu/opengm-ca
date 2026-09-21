@@ -115,7 +115,7 @@ PYEOF
 
 echo ""
 echo "=== 5. 前端代码参数验证 ==="
-if grep -q "subject_cn" /root/opengm-ca/web/index.html; then
+if grep -q "subject_cn" /home/omm/opengm-ca/web/index.html; then
     echo "  ✅ 前端代码已使用 subject_cn 参数"
 else
     echo "  ❌ 前端代码仍使用 cn 参数"

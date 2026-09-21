@@ -11,7 +11,7 @@ BASE_URL="https://localhost:8443"
 : "${CA_ADMIN_PASSWORD:?需设置环境变量 CA_ADMIN_PASSWORD（sys_admin/sec_admin 口令）}"
 : "${CA_AUDIT_PASSWORD:?需设置环境变量 CA_AUDIT_PASSWORD（audit_admin 口令）}"
 NEW_PASSWORD_TMP="NewPass@12345678!"
-TEST_RESULTS="/root/opengm-ca/test_results_$(date +%Y%m%d_%H%M%S).md"
+TEST_RESULTS="/home/omm/opengm-ca/test_results_$(date +%Y%m%d_%H%M%S).md"
 PASS=0
 FAIL=0
 

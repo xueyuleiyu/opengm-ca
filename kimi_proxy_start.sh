@@ -2,7 +2,7 @@
 # Kimi Code 代理启动脚本（Claude Code -> Kimi Code）
 # 用法: ./kimi_proxy_start.sh [start|stop|status|restart]
 
-LOG="/root/opengm-ca/kimi_proxy.log"
+LOG="/home/omm/opengm-ca/kimi_proxy.log"
 PIDFILE="/tmp/kimi_proxy.pid"
 PORT=4000
 
@@ -13,7 +13,7 @@ case "$1" in
       exit 0
     fi
     echo "启动 Kimi Proxy ..."
-    nohup python3 /root/opengm-ca/kimi_proxy.py > "$LOG" 2>&1 &
+    nohup python3 /home/omm/opengm-ca/kimi_proxy.py > "$LOG" 2>&1 &
     echo $! > "$PIDFILE"
     sleep 2
     if curl -s http://localhost:$PORT/health > /dev/null; then

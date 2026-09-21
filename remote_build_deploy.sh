@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO_DIR="/root/opengm-ca"
+REPO_DIR="/home/omm/opengm-ca"
 REMOTE="${REMOTE_USER}@${REMOTE_HOST}"  # 请设置环境变量
 SSHPASS="${SSHPASS}"  # 请设置环境变量
 

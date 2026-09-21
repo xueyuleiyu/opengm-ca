@@ -2,8 +2,8 @@
 # LiteLLM Proxy 启动脚本（Claude Code -> Kimi）
 # 用法: ./litellm_start.sh [start|stop|status|restart]
 
-CONFIG="/root/opengm-ca/litellm_config.yaml"
-LOG="/root/opengm-ca/litellm.log"
+CONFIG="/home/omm/opengm-ca/litellm_config.yaml"
+LOG="/home/omm/opengm-ca/litellm.log"
 PIDFILE="/tmp/litellm_proxy.pid"
 PORT=4000
 
